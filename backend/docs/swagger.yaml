@@ -1,0 +1,390 @@
+basePath: /api
+definitions:
+  model.AddUserRequest:
+    properties:
+      household_name:
+        type: string
+      password:
+        type: string
+      user_role:
+        type: string
+      username:
+        type: string
+    type: object
+  model.CreateTaskRequest:
+    properties:
+      assigned_to_user_id:
+        type: string
+      points_reward:
+        type: integer
+      title:
+        type: string
+      type:
+        type: string
+    type: object
+  model.LoginRequest:
+    properties:
+      password:
+        type: string
+      username:
+        type: string
+    type: object
+  model.LoginResponse:
+    properties:
+      household_id:
+        type: string
+      role:
+        type: string
+      user_id:
+        type: string
+    type: object
+  model.SignUpRequest:
+    properties:
+      household_name:
+        type: string
+      password:
+        type: string
+      username:
+        type: string
+    type: object
+  model.Task:
+    properties:
+      assigned_to_user_id:
+        type: string
+      household_id:
+        type: string
+      id:
+        type: string
+      points_reward:
+        type: integer
+      status:
+        description: Added Status field
+        type: string
+      title:
+        type: string
+      type:
+        type: string
+    type: object
+  model.TaskSubmission:
+    properties:
+      created_at:
+        type: string
+      id:
+        type: string
+      status:
+        type: string
+      submitted_by:
+        type: string
+      task_id:
+        type: string
+    type: object
+  model.UpdateSubmissionRequest:
+    properties:
+      action:
+        description: '"approve" or "reject"'
+        type: string
+    type: object
+  model.User:
+    properties:
+      household_id:
+        type: string
+      id:
+        type: string
+      points:
+        type: integer
+      role:
+        type: string
+      username:
+        type: string
+    type: object
+host: localhost:8080
+info:
+  contact: {}
+  description: This is the backend server for the ChoreCraft application.
+  title: ChoreCraft API
+  version: "1.0"
+paths:
+  /households/{householdID}/leaderboard:
+    get:
+      parameters:
+      - description: User ID
+        in: header
+        name: X-User-ID
+        required: true
+        type: string
+      - description: Household ID
+        in: path
+        name: householdID
+        required: true
+        type: string
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/model.User'
+            type: array
+      security:
+      - ApiKeyAuth: []
+      summary: Get household leaderboard
+      tags:
+      - Users
+  /households/{householdID}/members:
+    get:
+      parameters:
+      - description: User ID
+        in: header
+        name: X-User-ID
+        required: true
+        type: string
+      - description: Household ID
+        in: path
+        name: householdID
+        required: true
+        type: string
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/model.User'
+            type: array
+      security:
+      - ApiKeyAuth: []
+      summary: Get all members of a household
+      tags:
+      - Users
+  /households/{householdID}/submissions:
+    get:
+      parameters:
+      - description: Admin User ID
+        in: header
+        name: X-User-ID
+        required: true
+        type: string
+      - description: Household ID
+        in: path
+        name: householdID
+        required: true
+        type: string
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/model.TaskSubmission'
+            type: array
+      security:
+      - ApiKeyAuth: []
+      summary: List submissions for a household
+      tags:
+      - Admin
+  /households/{householdID}/tasks:
+    get:
+      parameters:
+      - description: User ID
+        in: header
+        name: X-User-ID
+        required: true
+        type: string
+      - description: Household ID
+        in: path
+        name: householdID
+        required: true
+        type: string
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/model.Task'
+            type: array
+      security:
+      - ApiKeyAuth: []
+      summary: List tasks for a household
+      tags:
+      - Tasks
+    post:
+      consumes:
+      - application/json
+      description: Creates a new chore.
+      parameters:
+      - description: Admin User ID
+        in: header
+        name: X-User-ID
+        required: true
+        type: string
+      - description: Household ID
+        in: path
+        name: householdID
+        required: true
+        type: string
+      - description: Task details
+        in: body
+        name: task
+        required: true
+        schema:
+          $ref: '#/definitions/model.CreateTaskRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/model.Task'
+      security:
+      - ApiKeyAuth: []
+      summary: Create a new task for a household
+      tags:
+      - Tasks
+  /households/{householdID}/tasks/{taskID}/status:
+    put:
+      parameters:
+      - description: Admin User ID
+        in: header
+        name: X-User-ID
+        required: true
+        type: string
+      - description: Household ID
+        in: path
+        name: householdID
+        required: true
+        type: string
+      - description: Task ID
+        in: path
+        name: taskID
+        required: true
+        type: string
+      - description: Action to perform (approve or reject)
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/model.UpdateSubmissionRequest'
+      responses:
+        "204":
+          description: No Content
+          schema:
+            type: string
+        "400":
+          description: Bad Request
+          schema:
+            type: string
+        "403":
+          description: Forbidden
+          schema:
+            type: string
+        "404":
+          description: Not Found (e.g., task not found, no pending submission)
+          schema:
+            type: string
+        "409":
+          description: Conflict (e.g., task already approved)
+          schema:
+            type: string
+        "500":
+          description: Internal Server Error
+          schema:
+            type: string
+      security:
+      - ApiKeyAuth: []
+      summary: Approve or reject a task by its ID
+      tags:
+      - Admin
+  /households/{householdID}/tasks/{taskID}/submit:
+    post:
+      parameters:
+      - description: User ID
+        in: header
+        name: X-User-ID
+        required: true
+        type: string
+      - description: Household ID
+        in: path
+        name: householdID
+        required: true
+        type: string
+      - description: Task ID
+        in: path
+        name: taskID
+        required: true
+        type: string
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/model.TaskSubmission'
+      security:
+      - ApiKeyAuth: []
+      summary: Submit a task for approval
+      tags:
+      - Tasks
+  /login:
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: User Credentials
+        in: body
+        name: credentials
+        required: true
+        schema:
+          $ref: '#/definitions/model.LoginRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/model.LoginResponse'
+      summary: Log in a user
+      tags:
+      - Auth
+  /signup:
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: Signup Details
+        in: body
+        name: signup
+        required: true
+        schema:
+          $ref: '#/definitions/model.SignUpRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/model.User'
+      summary: Sign up a new household and admin user
+      tags:
+      - Auth
+  /users:
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: User and Household Details
+        in: body
+        name: user
+        required: true
+        schema:
+          $ref: '#/definitions/model.AddUserRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/model.User'
+      summary: Add a user to an existing household
+      tags:
+      - Auth
+securityDefinitions:
+  ApiKeyAuth:
+    in: header
+    name: X-User-ID
+    type: apiKey
+swagger: "2.0"
