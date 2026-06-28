@@ -39,22 +39,22 @@ func checkPasswordHash(password, hash string) bool {
 	return err == nil
 }
 
-// SignUp hashes the password and creates a new household and user.
-func (s *Service) SignUp(ctx context.Context, householdName, username, password string) (model.User, error) {
+// SignUp hashes the password and creates a new choregroup and user.
+func (s *Service) SignUp(ctx context.Context, choregroupName, username, password string) (model.User, error) {
 	passwordHash, err := hashPassword(password)
 	if err != nil {
 		return model.User{}, err
 	}
-	return s.repo.CreateHouseholdAndUser(ctx, householdName, username, passwordHash, "admin") // Role is always admin on signup
+	return s.repo.CreateChoreGroupAndUser(ctx, choregroupName, username, passwordHash, "admin") // Role is always admin on signup
 }
 
-// AddUserToHousehold hashes the password and adds a new user to an existing household.
-func (s *Service) AddUserToHousehold(ctx context.Context, householdName, username, password, userRole string) (model.User, error) {
+// AddUserToChoreGroup hashes the password and adds a new user to an existing choregroup.
+func (s *Service) AddUserToChoreGroup(ctx context.Context, choregroupName, username, password, userRole string) (model.User, error) {
 	passwordHash, err := hashPassword(password)
 	if err != nil {
 		return model.User{}, err
 	}
-	return s.repo.AddUserToHousehold(ctx, householdName, username, passwordHash, userRole)
+	return s.repo.AddUserToChoreGroup(ctx, choregroupName, username, passwordHash, userRole)
 }
 
 // Login verifies a user's credentials and returns their details.
@@ -67,9 +67,9 @@ func (s *Service) Login(ctx context.Context, username, password string) (model.L
 		return model.LoginResponse{}, ErrInvalidCredentials
 	}
 	return model.LoginResponse{
-		UserID:      user.ID,
-		HouseholdID: user.HouseholdID,
-		Role:        user.Role,
+		UserID:       user.ID,
+		ChoreGroupID: user.ChoreGroupID,
+		Role:         user.Role,
 	}, nil
 }
 
@@ -78,16 +78,16 @@ func (s *Service) GetUserByID(ctx context.Context, userID uuid.UUID) (model.User
 	return s.repo.GetUserByID(ctx, userID)
 }
 
-// GetHouseholdMembers retrieves all users belonging to a specific household.
-func (s *Service) GetHouseholdMembers(ctx context.Context, householdID uuid.UUID) ([]model.User, error) {
-	return s.repo.GetUsersByHouseholdID(ctx, householdID)
+// GetChoreGroupMembers retrieves all users belonging to a specific choregroup.
+func (s *Service) GetChoreGroupMembers(ctx context.Context, choregroupID uuid.UUID) ([]model.User, error) {
+	return s.repo.GetUsersByChoreGroupID(ctx, choregroupID)
 }
 
 // CreateTask creates a new task from a DTO.
-func (s *Service) CreateTask(ctx context.Context, householdID uuid.UUID, req model.CreateTaskRequest) (*model.Task, error) {
+func (s *Service) CreateTask(ctx context.Context, choregroupID uuid.UUID, req model.CreateTaskRequest) (*model.Task, error) {
 	task := &model.Task{
 		ID:               uuid.New(),
-		HouseholdID:      householdID,
+		ChoreGroupID:     choregroupID,
 		Title:            req.Title,
 		Type:             req.Type,
 		PointsReward:     req.PointsReward,
@@ -97,14 +97,14 @@ func (s *Service) CreateTask(ctx context.Context, householdID uuid.UUID, req mod
 	return task, s.repo.CreateTask(ctx, task)
 }
 
-// ListTasks retrieves tasks for a specific user in a household.
-func (s *Service) ListTasks(ctx context.Context, householdID, userID uuid.UUID) ([]model.Task, error) {
-	return s.repo.ListTasks(ctx, householdID, userID)
+// ListTasks retrieves tasks for a specific user in a choregroup.
+func (s *Service) ListTasks(ctx context.Context, choregroupID, userID uuid.UUID) ([]model.Task, error) {
+	return s.repo.ListTasks(ctx, choregroupID, userID)
 }
 
-// GetLeaderboard retrieves the user leaderboard for a specific household.
-func (s *Service) GetLeaderboard(ctx context.Context, householdID uuid.UUID) ([]model.User, error) {
-	return s.repo.GetUsersByPoints(ctx, householdID)
+// GetLeaderboard retrieves the user leaderboard for a specific choregroup.
+func (s *Service) GetLeaderboard(ctx context.Context, choregroupID uuid.UUID) ([]model.User, error) {
+	return s.repo.GetUsersByPoints(ctx, choregroupID)
 }
 
 // UpdateTaskStatusByAdmin approves or rejects a task based on the latest submission.
@@ -117,7 +117,7 @@ func (s *Service) UpdateTaskStatusByAdmin(ctx context.Context, adminUser model.U
 	if err != nil {
 		return err
 	}
-	if task.HouseholdID != adminUser.HouseholdID {
+	if task.ChoreGroupID != adminUser.ChoreGroupID {
 		return ErrForbidden
 	}
 
@@ -129,14 +129,14 @@ func (s *Service) UpdateTaskStatusByAdmin(ctx context.Context, adminUser model.U
 	// Get the latest pending submission for this task
 	submission, err := s.repo.GetLatestPendingSubmissionForTask(ctx, taskID)
 	if err != nil {
-		if errors.Is(err, repository.ErrNotFound) { // Assuming repository returns ErrNotFound for no submission
+		if errors.Is(err, repository.ErrNotFound) {
 			return ErrNoPendingSubmission
 		}
 		return err
 	}
 
 	if action == "approve" {
-		err = s.repo.UpdatePoints(ctx, task.HouseholdID, submission.SubmittedBy, task.PointsReward, task.Type)
+		err = s.repo.UpdatePoints(ctx, task.ChoreGroupID, submission.SubmittedBy, task.PointsReward, task.Type)
 		if err != nil {
 			return err
 		}
@@ -152,8 +152,8 @@ func (s *Service) UpdateTaskStatusByAdmin(ctx context.Context, adminUser model.U
 		return nil
 	}
 	if action == "reject" {
-		// Revert task status to "assigned" or "open"
-		if err := s.repo.UpdateTaskStatus(ctx, taskID, "assigned"); err != nil { // Assuming "assigned" is the original state
+		// Revert task status to "assigned"
+		if err := s.repo.UpdateTaskStatus(ctx, taskID, "assigned"); err != nil {
 			return err
 		}
 		// Update submission status to "rejected"
@@ -185,7 +185,7 @@ func (s *Service) broadcastFCMNotification(taskID uuid.UUID) {
 	slog.Info("broadcasting FCM notification", "task_id", taskID)
 }
 
-// ListSubmissions retrieves submissions for a household.
-func (s *Service) ListSubmissions(ctx context.Context, householdID uuid.UUID) ([]model.TaskSubmission, error) {
-	return s.repo.ListSubmissions(ctx, householdID)
+// ListSubmissions retrieves submissions for a choregroup.
+func (s *Service) ListSubmissions(ctx context.Context, choregroupID uuid.UUID) ([]model.TaskSubmission, error) {
+	return s.repo.ListSubmissions(ctx, choregroupID)
 }

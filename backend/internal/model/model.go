@@ -8,31 +8,31 @@ import (
 
 // --- Internal Database Models ---
 
-// Household represents the households table.
-type Household struct {
+// ChoreGroup represents the choregroups table.
+type ChoreGroup struct {
 	ID   uuid.UUID `json:"id"`
 	Name string    `json:"name"`
 }
 
 // User represents the users table.
 type User struct {
-	ID           uuid.UUID `json:"id"`
-	HouseholdID  uuid.UUID `json:"household_id"`
-	Username     string    `json:"username"`
-	PasswordHash string    `json:"-"`
-	Role         string    `json:"role"`
-	Points       int       `json:"points"`
+	ID            uuid.UUID `json:"id"`
+	ChoreGroupID  uuid.UUID `json:"choregroup_id"`
+	Username      string    `json:"username"`
+	PasswordHash  string    `json:"-"`
+	Role          string    `json:"role"`
+	Points        int       `json:"points"`
 }
 
 // Task represents the tasks table.
 type Task struct {
 	ID               uuid.UUID  `json:"id"`
-	HouseholdID      uuid.UUID  `json:"household_id"`
+	ChoreGroupID     uuid.UUID  `json:"choregroup_id"`
 	AssignedToUserID *uuid.UUID `json:"assigned_to_user_id,omitempty"`
 	Title            string     `json:"title"`
 	Type             string     `json:"type"`
 	PointsReward     int        `json:"points_reward"`
-	Status           string     `json:"status"` // Added Status field
+	Status           string     `json:"status"`
 }
 
 // TaskSubmission represents the task_submissions table.
@@ -47,19 +47,19 @@ type TaskSubmission struct {
 
 // --- API Data Transfer Objects (DTOs) ---
 
-// SignUpRequest defines the body for creating a new household and its first admin user.
+// SignUpRequest defines the body for creating a new choregroup and its first admin user.
 type SignUpRequest struct {
-	HouseholdName string `json:"household_name"`
-	Username      string `json:"username"`
-	Password      string `json:"password"`
+	ChoreGroupName string `json:"choregroup_name"`
+	Username       string `json:"username"`
+	Password       string `json:"password"`
 }
 
-// AddUserRequest defines the body for adding a new user to an existing household.
+// AddUserRequest defines the body for adding a new user to an existing choregroup.
 type AddUserRequest struct {
-	HouseholdName string `json:"household_name"`
-	Username      string `json:"username"`
-	Password      string `json:"password"`
-	UserRole      string `json:"user_role"`
+	ChoreGroupName string `json:"choregroup_name"`
+	Username       string `json:"username"`
+	Password       string `json:"password"`
+	UserRole       string `json:"user_role"` // Should be 'user' or 'admin'
 }
 
 // LoginRequest defines the body for user authentication.
@@ -70,9 +70,9 @@ type LoginRequest struct {
 
 // LoginResponse defines the data returned upon successful login.
 type LoginResponse struct {
-	UserID      uuid.UUID `json:"user_id"`
-	HouseholdID uuid.UUID `json:"household_id"`
-	Role        string    `json:"role"`
+	UserID       uuid.UUID `json:"user_id"`
+	ChoreGroupID uuid.UUID `json:"choregroup_id"`
+	Role         string    `json:"role"`
 }
 
 // CreateTaskRequest defines the body for creating a new task.

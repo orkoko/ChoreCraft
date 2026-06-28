@@ -44,20 +44,20 @@ func (a *API) RegisterRoutes(r *chi.Mux) {
 	r.Get("/swagger/*", httpSwagger.WrapHandler)
 
 	// Protected routes
-	r.Route("/api/households/{householdID}", func(r chi.Router) {
+	r.Route("/api/choregroups/{choregroupID}", func(r chi.Router) {
 		r.Use(a.authMiddleware)
 		r.Get("/tasks", a.listTasks)
 		r.Post("/tasks", a.createTask)
 		r.Post("/tasks/{taskID}/submit", a.submitTask)
 		r.Get("/leaderboard", a.getLeaderboard)
-		r.Get("/members", a.getHouseholdMembers) // New route for household members
+		r.Get("/members", a.getChoreGroupMembers)
 		r.Get("/submissions", a.listSubmissions)
-		r.Put("/tasks/{taskID}/status", a.updateTaskStatusByAdmin) // Changed route and handler
+		r.Put("/tasks/{taskID}/status", a.updateTaskStatusByAdmin)
 	})
 }
 
 // signup godoc
-// @Summary      Sign up a new household and admin user
+// @Summary      Sign up a new choregroup and admin user
 // @Tags         Auth
 // @Accept       json
 // @Produce      json
@@ -70,11 +70,11 @@ func (a *API) signup(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
-	user, err := a.service.SignUp(r.Context(), req.HouseholdName, req.Username, req.Password)
+	user, err := a.service.SignUp(r.Context(), req.ChoreGroupName, req.Username, req.Password)
 	if err != nil {
 		var pgErr *pgconn.PgError
 		if errors.As(err, &pgErr) && pgErr.Code == "23505" {
-			http.Error(w, "Household or username already exists", http.StatusConflict)
+			http.Error(w, "ChoreGroup or username already exists", http.StatusConflict)
 			return
 		}
 		http.Error(w, "Internal server error", http.StatusInternalServerError)
@@ -110,11 +110,11 @@ func (a *API) login(w http.ResponseWriter, r *http.Request) {
 }
 
 // addUser godoc
-// @Summary      Add a user to an existing household
+// @Summary      Add a user to an existing choregroup
 // @Tags         Auth
 // @Accept       json
 // @Produce      json
-// @Param        user  body      model.AddUserRequest  true  "User and Household Details"
+// @Param        user  body      model.AddUserRequest  true  "User and ChoreGroup Details"
 // @Success      201   {object}  model.User
 // @Router       /users [post]
 func (a *API) addUser(w http.ResponseWriter, r *http.Request) {
@@ -123,14 +123,14 @@ func (a *API) addUser(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
-	user, err := a.service.AddUserToHousehold(r.Context(), req.HouseholdName, req.Username, req.Password, req.UserRole)
+	user, err := a.service.AddUserToChoreGroup(r.Context(), req.ChoreGroupName, req.Username, req.Password, req.UserRole)
 	if err != nil {
 		var pgErr *pgconn.PgError
 		if errors.As(err, &pgErr) && pgErr.Code == "23505" {
 			http.Error(w, "User with this name already exists", http.StatusConflict)
 			return
 		}
-		http.Error(w, "Household not found", http.StatusNotFound)
+		http.Error(w, "ChoreGroup not found", http.StatusNotFound)
 		return
 	}
 	w.WriteHeader(http.StatusCreated)
@@ -138,17 +138,17 @@ func (a *API) addUser(w http.ResponseWriter, r *http.Request) {
 }
 
 // createTask godoc
-// @Summary      Create a new task for a household
+// @Summary      Create a new task for a choregroup
 // @Description  Creates a new chore.
 // @Tags         Tasks
 // @Security     ApiKeyAuth
 // @Accept       json
 // @Produce      json
 // @Param        X-User-ID    header    string                   true  "Admin User ID"
-// @Param        householdID  path      string                   true  "Household ID"
+// @Param        choregroupID path      string                   true  "ChoreGroup ID"
 // @Param        task         body      model.CreateTaskRequest  true  "Task details"
 // @Success      201          {object}  model.Task
-// @Router       /households/{householdID}/tasks [post]
+// @Router       /choregroups/{choregroupID}/tasks [post]
 func (a *API) createTask(w http.ResponseWriter, r *http.Request) {
 	user := r.Context().Value(userKey).(model.User)
 	if user.Role != "admin" {
@@ -160,7 +160,7 @@ func (a *API) createTask(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
-	createdTask, err := a.service.CreateTask(r.Context(), user.HouseholdID, req)
+	createdTask, err := a.service.CreateTask(r.Context(), user.ChoreGroupID, req)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -170,16 +170,16 @@ func (a *API) createTask(w http.ResponseWriter, r *http.Request) {
 }
 
 // listTasks godoc
-// @Summary      List tasks for a household
+// @Summary      List tasks for a choregroup
 // @Tags         Tasks
 // @Security     ApiKeyAuth
 // @Param        X-User-ID    header    string  true  "User ID"
-// @Param        householdID  path      string  true  "Household ID"
+// @Param        choregroupID path      string  true  "ChoreGroup ID"
 // @Success      200          {array}   model.Task
-// @Router       /households/{householdID}/tasks [get]
+// @Router       /choregroups/{choregroupID}/tasks [get]
 func (a *API) listTasks(w http.ResponseWriter, r *http.Request) {
 	user := r.Context().Value(userKey).(model.User)
-	tasks, err := a.service.ListTasks(r.Context(), user.HouseholdID, user.ID)
+	tasks, err := a.service.ListTasks(r.Context(), user.ChoreGroupID, user.ID)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -192,10 +192,10 @@ func (a *API) listTasks(w http.ResponseWriter, r *http.Request) {
 // @Tags         Tasks
 // @Security     ApiKeyAuth
 // @Param        X-User-ID    header    string  true  "User ID"
-// @Param        householdID  path      string  true  "Household ID"
+// @Param        choregroupID path      string  true  "ChoreGroup ID"
 // @Param        taskID       path      string  true  "Task ID"
 // @Success      201          {object}  model.TaskSubmission
-// @Router       /households/{householdID}/tasks/{taskID}/submit [post]
+// @Router       /choregroups/{choregroupID}/tasks/{taskID}/submit [post]
 func (a *API) submitTask(w http.ResponseWriter, r *http.Request) {
 	user := r.Context().Value(userKey).(model.User)
 	taskID, _ := uuid.Parse(chi.URLParam(r, "taskID"))
@@ -213,16 +213,11 @@ func (a *API) submitTask(w http.ResponseWriter, r *http.Request) {
 // @Tags         Admin
 // @Security     ApiKeyAuth
 // @Param        X-User-ID    header    string                       true  "Admin User ID"
-// @Param        householdID  path      string                       true  "Household ID"
+// @Param        choregroupID path      string                       true  "ChoreGroup ID"
 // @Param        taskID       path      string                       true  "Task ID"
 // @Param        body         body      model.UpdateSubmissionRequest  true  "Action to perform (approve or reject)"
 // @Success      204          {string}  string                       "No Content"
-// @Failure      400          {string}  string                       "Bad Request"
-// @Failure      403          {string}  string                       "Forbidden"
-// @Failure      404          {string}  string                       "Not Found (e.g., task not found, no pending submission)"
-// @Failure      409          {string}  string                       "Conflict (e.g., task already approved)"
-// @Failure      500          {string}  string                       "Internal Server Error"
-// @Router       /households/{householdID}/tasks/{taskID}/status [put]
+// @Router       /choregroups/{choregroupID}/tasks/{taskID}/status [put]
 func (a *API) updateTaskStatusByAdmin(w http.ResponseWriter, r *http.Request) {
 	user := r.Context().Value(userKey).(model.User)
 	taskID, err := uuid.Parse(chi.URLParam(r, "taskID"))
@@ -242,10 +237,10 @@ func (a *API) updateTaskStatusByAdmin(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Forbidden", http.StatusForbidden)
 		return
 	} else if errors.Is(err, service.ErrTaskAlreadyApproved) {
-		http.Error(w, err.Error(), http.StatusConflict) // 409 Conflict for already approved
+		http.Error(w, err.Error(), http.StatusConflict)
 		return
 	} else if errors.Is(err, service.ErrNoPendingSubmission) {
-		http.Error(w, err.Error(), http.StatusNotFound) // 404 Not Found if no pending submission
+		http.Error(w, err.Error(), http.StatusNotFound)
 		return
 	} else if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -255,16 +250,16 @@ func (a *API) updateTaskStatusByAdmin(w http.ResponseWriter, r *http.Request) {
 }
 
 // getLeaderboard godoc
-// @Summary      Get household leaderboard
+// @Summary      Get choregroup leaderboard
 // @Tags         Users
 // @Security     ApiKeyAuth
 // @Param        X-User-ID    header    string  true  "User ID"
-// @Param        householdID  path      string  true  "Household ID"
+// @Param        choregroupID path      string  true  "ChoreGroup ID"
 // @Success      200          {array}   model.User
-// @Router       /households/{householdID}/leaderboard [get]
+// @Router       /choregroups/{choregroupID}/leaderboard [get]
 func (a *API) getLeaderboard(w http.ResponseWriter, r *http.Request) {
 	user := r.Context().Value(userKey).(model.User)
-	users, err := a.service.GetLeaderboard(r.Context(), user.HouseholdID)
+	users, err := a.service.GetLeaderboard(r.Context(), user.ChoreGroupID)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -272,18 +267,17 @@ func (a *API) getLeaderboard(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(users)
 }
 
-// getHouseholdMembers godoc
-// @Summary      Get all members of a household
+// getChoreGroupMembers godoc
+// @Summary      Get all members of a choregroup
 // @Tags         Users
 // @Security     ApiKeyAuth
 // @Param        X-User-ID    header    string  true  "User ID"
-// @Param        householdID  path      string  true  "Household ID"
+// @Param        choregroupID path      string  true  "ChoreGroup ID"
 // @Success      200          {array}   model.User
-// @Router       /households/{householdID}/members [get]
-func (a *API) getHouseholdMembers(w http.ResponseWriter, r *http.Request) {
+// @Router       /choregroups/{choregroupID}/members [get]
+func (a *API) getChoreGroupMembers(w http.ResponseWriter, r *http.Request) {
 	user := r.Context().Value(userKey).(model.User)
-	// The authMiddleware already ensures the user belongs to the householdID in the path
-	members, err := a.service.GetHouseholdMembers(r.Context(), user.HouseholdID)
+	members, err := a.service.GetChoreGroupMembers(r.Context(), user.ChoreGroupID)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -309,10 +303,10 @@ func (a *API) authMiddleware(next http.Handler) http.Handler {
 			http.Error(w, "Unauthorized: User not found", http.StatusUnauthorized)
 			return
 		}
-		if householdIDStr := chi.URLParam(r, "householdID"); householdIDStr != "" {
-			householdID, _ := uuid.Parse(householdIDStr)
-			if user.HouseholdID != householdID {
-				http.Error(w, "Forbidden: You do not have access to this household", http.StatusForbidden)
+		if choregroupIDStr := chi.URLParam(r, "choregroupID"); choregroupIDStr != "" {
+			choregroupID, _ := uuid.Parse(choregroupIDStr)
+			if user.ChoreGroupID != choregroupID {
+				http.Error(w, "Forbidden: You do not have access to this choregroup", http.StatusForbidden)
 				return
 			}
 		}
@@ -322,20 +316,20 @@ func (a *API) authMiddleware(next http.Handler) http.Handler {
 }
 
 // listSubmissions godoc
-// @Summary      List submissions for a household
+// @Summary      List submissions for a choregroup
 // @Tags         Admin
 // @Security     ApiKeyAuth
 // @Param        X-User-ID    header    string  true  "Admin User ID"
-// @Param        householdID  path      string  true  "Household ID"
+// @Param        choregroupID path      string  true  "ChoreGroup ID"
 // @Success      200          {array}   model.TaskSubmission
-// @Router       /households/{householdID}/submissions [get]
+// @Router       /choregroups/{choregroupID}/submissions [get]
 func (a *API) listSubmissions(w http.ResponseWriter, r *http.Request) {
 	user := r.Context().Value(userKey).(model.User)
 	if user.Role != "admin" {
 		http.Error(w, "Forbidden: only admins can list submissions", http.StatusForbidden)
 		return
 	}
-	submissions, err := a.service.ListSubmissions(r.Context(), user.HouseholdID)
+	submissions, err := a.service.ListSubmissions(r.Context(), user.ChoreGroupID)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return

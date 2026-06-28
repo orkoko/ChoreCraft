@@ -15,7 +15,7 @@ const docTemplate = `{
     "host": "{{.Host}}",
     "basePath": "{{.BasePath}}",
     "paths": {
-        "/households/{householdID}/leaderboard": {
+        "/choregroups/{choregroupID}/leaderboard": {
             "get": {
                 "security": [
                     {
@@ -25,7 +25,7 @@ const docTemplate = `{
                 "tags": [
                     "Users"
                 ],
-                "summary": "Get household leaderboard",
+                "summary": "Get choregroup leaderboard",
                 "parameters": [
                     {
                         "type": "string",
@@ -36,8 +36,8 @@ const docTemplate = `{
                     },
                     {
                         "type": "string",
-                        "description": "Household ID",
-                        "name": "householdID",
+                        "description": "ChoreGroup ID",
+                        "name": "choregroupID",
                         "in": "path",
                         "required": true
                     }
@@ -55,7 +55,7 @@ const docTemplate = `{
                 }
             }
         },
-        "/households/{householdID}/members": {
+        "/choregroups/{choregroupID}/members": {
             "get": {
                 "security": [
                     {
@@ -65,7 +65,7 @@ const docTemplate = `{
                 "tags": [
                     "Users"
                 ],
-                "summary": "Get all members of a household",
+                "summary": "Get all members of a choregroup",
                 "parameters": [
                     {
                         "type": "string",
@@ -76,8 +76,8 @@ const docTemplate = `{
                     },
                     {
                         "type": "string",
-                        "description": "Household ID",
-                        "name": "householdID",
+                        "description": "ChoreGroup ID",
+                        "name": "choregroupID",
                         "in": "path",
                         "required": true
                     }
@@ -95,7 +95,7 @@ const docTemplate = `{
                 }
             }
         },
-        "/households/{householdID}/submissions": {
+        "/choregroups/{choregroupID}/submissions": {
             "get": {
                 "security": [
                     {
@@ -105,7 +105,7 @@ const docTemplate = `{
                 "tags": [
                     "Admin"
                 ],
-                "summary": "List submissions for a household",
+                "summary": "List submissions for a choregroup",
                 "parameters": [
                     {
                         "type": "string",
@@ -116,8 +116,8 @@ const docTemplate = `{
                     },
                     {
                         "type": "string",
-                        "description": "Household ID",
-                        "name": "householdID",
+                        "description": "ChoreGroup ID",
+                        "name": "choregroupID",
                         "in": "path",
                         "required": true
                     }
@@ -135,7 +135,7 @@ const docTemplate = `{
                 }
             }
         },
-        "/households/{householdID}/tasks": {
+        "/choregroups/{choregroupID}/tasks": {
             "get": {
                 "security": [
                     {
@@ -145,7 +145,7 @@ const docTemplate = `{
                 "tags": [
                     "Tasks"
                 ],
-                "summary": "List tasks for a household",
+                "summary": "List tasks for a choregroup",
                 "parameters": [
                     {
                         "type": "string",
@@ -156,8 +156,8 @@ const docTemplate = `{
                     },
                     {
                         "type": "string",
-                        "description": "Household ID",
-                        "name": "householdID",
+                        "description": "ChoreGroup ID",
+                        "name": "choregroupID",
                         "in": "path",
                         "required": true
                     }
@@ -190,7 +190,7 @@ const docTemplate = `{
                 "tags": [
                     "Tasks"
                 ],
-                "summary": "Create a new task for a household",
+                "summary": "Create a new task for a choregroup",
                 "parameters": [
                     {
                         "type": "string",
@@ -201,8 +201,8 @@ const docTemplate = `{
                     },
                     {
                         "type": "string",
-                        "description": "Household ID",
-                        "name": "householdID",
+                        "description": "ChoreGroup ID",
+                        "name": "choregroupID",
                         "in": "path",
                         "required": true
                     },
@@ -226,7 +226,7 @@ const docTemplate = `{
                 }
             }
         },
-        "/households/{householdID}/tasks/{taskID}/status": {
+        "/choregroups/{choregroupID}/tasks/{taskID}/status": {
             "put": {
                 "security": [
                     {
@@ -247,8 +247,8 @@ const docTemplate = `{
                     },
                     {
                         "type": "string",
-                        "description": "Household ID",
-                        "name": "householdID",
+                        "description": "ChoreGroup ID",
+                        "name": "choregroupID",
                         "in": "path",
                         "required": true
                     },
@@ -275,41 +275,11 @@ const docTemplate = `{
                         "schema": {
                             "type": "string"
                         }
-                    },
-                    "400": {
-                        "description": "Bad Request",
-                        "schema": {
-                            "type": "string"
-                        }
-                    },
-                    "403": {
-                        "description": "Forbidden",
-                        "schema": {
-                            "type": "string"
-                        }
-                    },
-                    "404": {
-                        "description": "Not Found (e.g., task not found, no pending submission)",
-                        "schema": {
-                            "type": "string"
-                        }
-                    },
-                    "409": {
-                        "description": "Conflict (e.g., task already approved)",
-                        "schema": {
-                            "type": "string"
-                        }
-                    },
-                    "500": {
-                        "description": "Internal Server Error",
-                        "schema": {
-                            "type": "string"
-                        }
                     }
                 }
             }
         },
-        "/households/{householdID}/tasks/{taskID}/submit": {
+        "/choregroups/{choregroupID}/tasks/{taskID}/submit": {
             "post": {
                 "security": [
                     {
@@ -330,8 +300,8 @@ const docTemplate = `{
                     },
                     {
                         "type": "string",
-                        "description": "Household ID",
-                        "name": "householdID",
+                        "description": "ChoreGroup ID",
+                        "name": "choregroupID",
                         "in": "path",
                         "required": true
                     },
@@ -397,7 +367,7 @@ const docTemplate = `{
                 "tags": [
                     "Auth"
                 ],
-                "summary": "Sign up a new household and admin user",
+                "summary": "Sign up a new choregroup and admin user",
                 "parameters": [
                     {
                         "description": "Signup Details",
@@ -430,10 +400,10 @@ const docTemplate = `{
                 "tags": [
                     "Auth"
                 ],
-                "summary": "Add a user to an existing household",
+                "summary": "Add a user to an existing choregroup",
                 "parameters": [
                     {
-                        "description": "User and Household Details",
+                        "description": "User and ChoreGroup Details",
                         "name": "user",
                         "in": "body",
                         "required": true,
@@ -457,13 +427,14 @@ const docTemplate = `{
         "model.AddUserRequest": {
             "type": "object",
             "properties": {
-                "household_name": {
+                "choregroup_name": {
                     "type": "string"
                 },
                 "password": {
                     "type": "string"
                 },
                 "user_role": {
+                    "description": "Should be 'user' or 'admin'",
                     "type": "string"
                 },
                 "username": {
@@ -502,7 +473,7 @@ const docTemplate = `{
         "model.LoginResponse": {
             "type": "object",
             "properties": {
-                "household_id": {
+                "choregroup_id": {
                     "type": "string"
                 },
                 "role": {
@@ -516,7 +487,7 @@ const docTemplate = `{
         "model.SignUpRequest": {
             "type": "object",
             "properties": {
-                "household_name": {
+                "choregroup_name": {
                     "type": "string"
                 },
                 "password": {
@@ -533,7 +504,7 @@ const docTemplate = `{
                 "assigned_to_user_id": {
                     "type": "string"
                 },
-                "household_id": {
+                "choregroup_id": {
                     "type": "string"
                 },
                 "id": {
@@ -543,7 +514,6 @@ const docTemplate = `{
                     "type": "integer"
                 },
                 "status": {
-                    "description": "Added Status field",
                     "type": "string"
                 },
                 "title": {
@@ -586,7 +556,7 @@ const docTemplate = `{
         "model.User": {
             "type": "object",
             "properties": {
-                "household_id": {
+                "choregroup_id": {
                     "type": "string"
                 },
                 "id": {

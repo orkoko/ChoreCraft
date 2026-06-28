@@ -2,11 +2,12 @@ basePath: /api
 definitions:
   model.AddUserRequest:
     properties:
-      household_name:
+      choregroup_name:
         type: string
       password:
         type: string
       user_role:
+        description: Should be 'user' or 'admin'
         type: string
       username:
         type: string
@@ -31,7 +32,7 @@ definitions:
     type: object
   model.LoginResponse:
     properties:
-      household_id:
+      choregroup_id:
         type: string
       role:
         type: string
@@ -40,7 +41,7 @@ definitions:
     type: object
   model.SignUpRequest:
     properties:
-      household_name:
+      choregroup_name:
         type: string
       password:
         type: string
@@ -51,14 +52,13 @@ definitions:
     properties:
       assigned_to_user_id:
         type: string
-      household_id:
+      choregroup_id:
         type: string
       id:
         type: string
       points_reward:
         type: integer
       status:
-        description: Added Status field
         type: string
       title:
         type: string
@@ -86,7 +86,7 @@ definitions:
     type: object
   model.User:
     properties:
-      household_id:
+      choregroup_id:
         type: string
       id:
         type: string
@@ -104,7 +104,7 @@ info:
   title: ChoreCraft API
   version: "1.0"
 paths:
-  /households/{householdID}/leaderboard:
+  /choregroups/{choregroupID}/leaderboard:
     get:
       parameters:
       - description: User ID
@@ -112,9 +112,9 @@ paths:
         name: X-User-ID
         required: true
         type: string
-      - description: Household ID
+      - description: ChoreGroup ID
         in: path
-        name: householdID
+        name: choregroupID
         required: true
         type: string
       responses:
@@ -126,10 +126,10 @@ paths:
             type: array
       security:
       - ApiKeyAuth: []
-      summary: Get household leaderboard
+      summary: Get choregroup leaderboard
       tags:
       - Users
-  /households/{householdID}/members:
+  /choregroups/{choregroupID}/members:
     get:
       parameters:
       - description: User ID
@@ -137,9 +137,9 @@ paths:
         name: X-User-ID
         required: true
         type: string
-      - description: Household ID
+      - description: ChoreGroup ID
         in: path
-        name: householdID
+        name: choregroupID
         required: true
         type: string
       responses:
@@ -151,10 +151,10 @@ paths:
             type: array
       security:
       - ApiKeyAuth: []
-      summary: Get all members of a household
+      summary: Get all members of a choregroup
       tags:
       - Users
-  /households/{householdID}/submissions:
+  /choregroups/{choregroupID}/submissions:
     get:
       parameters:
       - description: Admin User ID
@@ -162,9 +162,9 @@ paths:
         name: X-User-ID
         required: true
         type: string
-      - description: Household ID
+      - description: ChoreGroup ID
         in: path
-        name: householdID
+        name: choregroupID
         required: true
         type: string
       responses:
@@ -176,10 +176,10 @@ paths:
             type: array
       security:
       - ApiKeyAuth: []
-      summary: List submissions for a household
+      summary: List submissions for a choregroup
       tags:
       - Admin
-  /households/{householdID}/tasks:
+  /choregroups/{choregroupID}/tasks:
     get:
       parameters:
       - description: User ID
@@ -187,9 +187,9 @@ paths:
         name: X-User-ID
         required: true
         type: string
-      - description: Household ID
+      - description: ChoreGroup ID
         in: path
-        name: householdID
+        name: choregroupID
         required: true
         type: string
       responses:
@@ -201,7 +201,7 @@ paths:
             type: array
       security:
       - ApiKeyAuth: []
-      summary: List tasks for a household
+      summary: List tasks for a choregroup
       tags:
       - Tasks
     post:
@@ -214,9 +214,9 @@ paths:
         name: X-User-ID
         required: true
         type: string
-      - description: Household ID
+      - description: ChoreGroup ID
         in: path
-        name: householdID
+        name: choregroupID
         required: true
         type: string
       - description: Task details
@@ -234,10 +234,10 @@ paths:
             $ref: '#/definitions/model.Task'
       security:
       - ApiKeyAuth: []
-      summary: Create a new task for a household
+      summary: Create a new task for a choregroup
       tags:
       - Tasks
-  /households/{householdID}/tasks/{taskID}/status:
+  /choregroups/{choregroupID}/tasks/{taskID}/status:
     put:
       parameters:
       - description: Admin User ID
@@ -245,9 +245,9 @@ paths:
         name: X-User-ID
         required: true
         type: string
-      - description: Household ID
+      - description: ChoreGroup ID
         in: path
-        name: householdID
+        name: choregroupID
         required: true
         type: string
       - description: Task ID
@@ -266,32 +266,12 @@ paths:
           description: No Content
           schema:
             type: string
-        "400":
-          description: Bad Request
-          schema:
-            type: string
-        "403":
-          description: Forbidden
-          schema:
-            type: string
-        "404":
-          description: Not Found (e.g., task not found, no pending submission)
-          schema:
-            type: string
-        "409":
-          description: Conflict (e.g., task already approved)
-          schema:
-            type: string
-        "500":
-          description: Internal Server Error
-          schema:
-            type: string
       security:
       - ApiKeyAuth: []
       summary: Approve or reject a task by its ID
       tags:
       - Admin
-  /households/{householdID}/tasks/{taskID}/submit:
+  /choregroups/{choregroupID}/tasks/{taskID}/submit:
     post:
       parameters:
       - description: User ID
@@ -299,9 +279,9 @@ paths:
         name: X-User-ID
         required: true
         type: string
-      - description: Household ID
+      - description: ChoreGroup ID
         in: path
-        name: householdID
+        name: choregroupID
         required: true
         type: string
       - description: Task ID
@@ -358,7 +338,7 @@ paths:
           description: Created
           schema:
             $ref: '#/definitions/model.User'
-      summary: Sign up a new household and admin user
+      summary: Sign up a new choregroup and admin user
       tags:
       - Auth
   /users:
@@ -366,7 +346,7 @@ paths:
       consumes:
       - application/json
       parameters:
-      - description: User and Household Details
+      - description: User and ChoreGroup Details
         in: body
         name: user
         required: true
@@ -379,7 +359,7 @@ paths:
           description: Created
           schema:
             $ref: '#/definitions/model.User'
-      summary: Add a user to an existing household
+      summary: Add a user to an existing choregroup
       tags:
       - Auth
 securityDefinitions:

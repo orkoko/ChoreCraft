@@ -75,7 +75,7 @@ func performRequest(t *testing.T, req *http.Request, expectedStatus int) *httpte
 
 func clearAllTables(t *testing.T) {
 	t.Helper()
-	if _, err := testDbPool.Exec(context.Background(), `TRUNCATE TABLE households RESTART IDENTITY CASCADE;`); err != nil {
+	if _, err := testDbPool.Exec(context.Background(), `TRUNCATE TABLE choregroups RESTART IDENTITY CASCADE;`); err != nil {
 		t.Fatalf("Failed to truncate tables: %v", err)
 	}
 }
@@ -83,74 +83,72 @@ func clearAllTables(t *testing.T) {
 func TestAuthAndFullFlow(t *testing.T) {
 	clearAllTables(t)
 
-	// Setup users and household
-	signupA := model.SignUpRequest{HouseholdName: "Family A", Username: "dad_a", Password: "password123"}
+	// Setup users and choregroup
+	signupA := model.SignUpRequest{ChoreGroupName: "Group A", Username: "admin_a", Password: "password123"}
 	signupABody, _ := json.Marshal(signupA)
 	reqA, _ := http.NewRequest("POST", "/api/signup", bytes.NewBuffer(signupABody))
 	performRequest(t, reqA, http.StatusCreated)
 
-	addUserReq := model.AddUserRequest{HouseholdName: "Family A", Username: "kid_a", Password: "password123", UserRole: "child"}
+	addUserReq := model.AddUserRequest{ChoreGroupName: "Group A", Username: "user_a", Password: "password123", UserRole: "user"}
 	addUserBody, _ := json.Marshal(addUserReq)
 	reqAddUser, _ := http.NewRequest("POST", "/api/users", bytes.NewBuffer(addUserBody))
 	performRequest(t, reqAddUser, http.StatusCreated)
 
 	// Login
-	loginReqA := model.LoginRequest{Username: "dad_a", Password: "password123"}
+	loginReqA := model.LoginRequest{Username: "admin_a", Password: "password123"}
 	loginBodyA, _ := json.Marshal(loginReqA)
 	reqLoginA, _ := http.NewRequest("POST", "/api/login", bytes.NewBuffer(loginBodyA))
 	rrLoginA := performRequest(t, reqLoginA, http.StatusOK)
-	var dadALogin model.LoginResponse
-	json.NewDecoder(rrLoginA.Body).Decode(&dadALogin)
+	var adminALogin model.LoginResponse
+	json.NewDecoder(rrLoginA.Body).Decode(&adminALogin)
 
-	loginReqKidA := model.LoginRequest{Username: "kid_a", Password: "password123"}
-	loginBodyKidA, _ := json.Marshal(loginReqKidA)
-	reqLoginKidA, _ := http.NewRequest("POST", "/api/login", bytes.NewBuffer(loginBodyKidA))
-	rrLoginKidA := performRequest(t, reqLoginKidA, http.StatusOK)
-	var kidALogin model.LoginResponse
-	json.NewDecoder(rrLoginKidA.Body).Decode(&kidALogin)
+	loginReqUserA := model.LoginRequest{Username: "user_a", Password: "password123"}
+	loginBodyUserA, _ := json.Marshal(loginReqUserA)
+	reqLoginUserA, _ := http.NewRequest("POST", "/api/login", bytes.NewBuffer(loginBodyUserA))
+	rrLoginUserA := performRequest(t, reqLoginUserA, http.StatusOK)
+	var userALogin model.LoginResponse
+	json.NewDecoder(rrLoginUserA.Body).Decode(&userALogin)
 
-	// Create task using the new DTO
+	// Create task
 	taskA := model.CreateTaskRequest{Title: "Mow the lawn", Type: "individual", PointsReward: 100}
 	taskABody, _ := json.Marshal(taskA)
-	createTaskURL := fmt.Sprintf("/api/households/%s/tasks", dadALogin.HouseholdID)
+	createTaskURL := fmt.Sprintf("/api/choregroups/%s/tasks", adminALogin.ChoreGroupID)
 	reqCreate, _ := http.NewRequest("POST", createTaskURL, bytes.NewBuffer(taskABody))
-	reqCreate.Header.Set("X-User-ID", dadALogin.UserID.String())
+	reqCreate.Header.Set("X-User-ID", adminALogin.UserID.String())
 	rrCreate := performRequest(t, reqCreate, http.StatusCreated)
 	var createdTask model.Task
 	json.NewDecoder(rrCreate.Body).Decode(&createdTask)
 
 	// Submit task
-	submitURL := fmt.Sprintf("/api/households/%s/tasks/%s/submit", kidALogin.HouseholdID, createdTask.ID)
+	submitURL := fmt.Sprintf("/api/choregroups/%s/tasks/%s/submit", userALogin.ChoreGroupID, createdTask.ID)
 	reqSubmit, _ := http.NewRequest("POST", submitURL, nil)
-	reqSubmit.Header.Set("X-User-ID", kidALogin.UserID.String())
-	rrSubmit := performRequest(t, reqSubmit, http.StatusCreated)
-	var createdSubmission model.TaskSubmission
-	json.NewDecoder(rrSubmit.Body).Decode(&createdSubmission)
+	reqSubmit.Header.Set("X-User-ID", userALogin.UserID.String())
+	performRequest(t, reqSubmit, http.StatusCreated)
 
 	// Approve submission
-	approveURL := fmt.Sprintf("/api/households/%s/tasks/%s/status", dadALogin.HouseholdID, createdTask.ID)
+	approveURL := fmt.Sprintf("/api/choregroups/%s/tasks/%s/status", adminALogin.ChoreGroupID, createdTask.ID)
 	approvePayload := model.UpdateSubmissionRequest{Action: "approve"}
 	approveBody, _ := json.Marshal(approvePayload)
 	reqApprove, _ := http.NewRequest("PUT", approveURL, bytes.NewBuffer(approveBody))
-	reqApprove.Header.Set("X-User-ID", dadALogin.UserID.String())
+	reqApprove.Header.Set("X-User-ID", adminALogin.UserID.String())
 	performRequest(t, reqApprove, http.StatusNoContent)
 }
 
 func TestAssignedTaskVisibility(t *testing.T) {
 	clearAllTables(t)
 
-	// 1. Create household, admin, and two children
-	signup := model.SignUpRequest{HouseholdName: "The Assignments", Username: "assign_admin", Password: "pw"}
+	// 1. Create choregroup, admin, and two users
+	signup := model.SignUpRequest{ChoreGroupName: "The Assignments", Username: "assign_admin", Password: "pw"}
 	signupBody, _ := json.Marshal(signup)
 	reqSignup, _ := http.NewRequest("POST", "/api/signup", bytes.NewBuffer(signupBody))
 	performRequest(t, reqSignup, http.StatusCreated)
 
-	addUserGalReq := model.AddUserRequest{HouseholdName: "The Assignments", Username: "gal", Password: "pw", UserRole: "child"}
+	addUserGalReq := model.AddUserRequest{ChoreGroupName: "The Assignments", Username: "gal", Password: "pw", UserRole: "user"}
 	addUserBodyGal, _ := json.Marshal(addUserGalReq)
 	reqAddGal, _ := http.NewRequest("POST", "/api/users", bytes.NewBuffer(addUserBodyGal))
 	performRequest(t, reqAddGal, http.StatusCreated)
 
-	addUserRonReq := model.AddUserRequest{HouseholdName: "The Assignments", Username: "ron", Password: "pw", UserRole: "child"}
+	addUserRonReq := model.AddUserRequest{ChoreGroupName: "The Assignments", Username: "ron", Password: "pw", UserRole: "user"}
 	addUserBodyRon, _ := json.Marshal(addUserRonReq)
 	reqAddRon, _ := http.NewRequest("POST", "/api/users", bytes.NewBuffer(addUserBodyRon))
 	performRequest(t, reqAddRon, http.StatusCreated)
@@ -181,7 +179,7 @@ func TestAssignedTaskVisibility(t *testing.T) {
 	publicTask := model.CreateTaskRequest{Title: "Wash the dishes", Type: "cooperative", PointsReward: 20}
 	privateTask := model.CreateTaskRequest{Title: "Clean Gal's room", Type: "individual", PointsReward: 50, AssignedToUserID: &gal.UserID}
 
-	createURL := fmt.Sprintf("/api/households/%s/tasks", admin.HouseholdID)
+	createURL := fmt.Sprintf("/api/choregroups/%s/tasks", admin.ChoreGroupID)
 
 	publicTaskBody, _ := json.Marshal(publicTask)
 	reqCreatePublic, _ := http.NewRequest("POST", createURL, bytes.NewBuffer(publicTaskBody))
@@ -195,7 +193,7 @@ func TestAssignedTaskVisibility(t *testing.T) {
 
 	// 3. Test what Gal sees
 	t.Run("Gal sees public and personal tasks", func(t *testing.T) {
-		listTasksURL := fmt.Sprintf("/api/households/%s/tasks", gal.HouseholdID)
+		listTasksURL := fmt.Sprintf("/api/choregroups/%s/tasks", gal.ChoreGroupID)
 		req, _ := http.NewRequest("GET", listTasksURL, nil)
 		req.Header.Set("X-User-ID", gal.UserID.String())
 		rr := performRequest(t, req, http.StatusOK)
@@ -208,7 +206,7 @@ func TestAssignedTaskVisibility(t *testing.T) {
 
 	// 4. Test what Ron sees
 	t.Run("Ron sees only public tasks", func(t *testing.T) {
-		listTasksURL := fmt.Sprintf("/api/households/%s/tasks", ron.HouseholdID)
+		listTasksURL := fmt.Sprintf("/api/choregroups/%s/tasks", ron.ChoreGroupID)
 		req, _ := http.NewRequest("GET", listTasksURL, nil)
 		req.Header.Set("X-User-ID", ron.UserID.String())
 		rr := performRequest(t, req, http.StatusOK)

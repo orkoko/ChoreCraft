@@ -9,7 +9,7 @@
     "host": "localhost:8080",
     "basePath": "/api",
     "paths": {
-        "/households/{householdID}/leaderboard": {
+        "/choregroups/{choregroupID}/leaderboard": {
             "get": {
                 "security": [
                     {
@@ -19,7 +19,7 @@
                 "tags": [
                     "Users"
                 ],
-                "summary": "Get household leaderboard",
+                "summary": "Get choregroup leaderboard",
                 "parameters": [
                     {
                         "type": "string",
@@ -30,8 +30,8 @@
                     },
                     {
                         "type": "string",
-                        "description": "Household ID",
-                        "name": "householdID",
+                        "description": "ChoreGroup ID",
+                        "name": "choregroupID",
                         "in": "path",
                         "required": true
                     }
@@ -49,7 +49,7 @@
                 }
             }
         },
-        "/households/{householdID}/members": {
+        "/choregroups/{choregroupID}/members": {
             "get": {
                 "security": [
                     {
@@ -59,7 +59,7 @@
                 "tags": [
                     "Users"
                 ],
-                "summary": "Get all members of a household",
+                "summary": "Get all members of a choregroup",
                 "parameters": [
                     {
                         "type": "string",
@@ -70,8 +70,8 @@
                     },
                     {
                         "type": "string",
-                        "description": "Household ID",
-                        "name": "householdID",
+                        "description": "ChoreGroup ID",
+                        "name": "choregroupID",
                         "in": "path",
                         "required": true
                     }
@@ -89,7 +89,7 @@
                 }
             }
         },
-        "/households/{householdID}/submissions": {
+        "/choregroups/{choregroupID}/submissions": {
             "get": {
                 "security": [
                     {
@@ -99,7 +99,7 @@
                 "tags": [
                     "Admin"
                 ],
-                "summary": "List submissions for a household",
+                "summary": "List submissions for a choregroup",
                 "parameters": [
                     {
                         "type": "string",
@@ -110,8 +110,8 @@
                     },
                     {
                         "type": "string",
-                        "description": "Household ID",
-                        "name": "householdID",
+                        "description": "ChoreGroup ID",
+                        "name": "choregroupID",
                         "in": "path",
                         "required": true
                     }
@@ -129,7 +129,7 @@
                 }
             }
         },
-        "/households/{householdID}/tasks": {
+        "/choregroups/{choregroupID}/tasks": {
             "get": {
                 "security": [
                     {
@@ -139,7 +139,7 @@
                 "tags": [
                     "Tasks"
                 ],
-                "summary": "List tasks for a household",
+                "summary": "List tasks for a choregroup",
                 "parameters": [
                     {
                         "type": "string",
@@ -150,8 +150,8 @@
                     },
                     {
                         "type": "string",
-                        "description": "Household ID",
-                        "name": "householdID",
+                        "description": "ChoreGroup ID",
+                        "name": "choregroupID",
                         "in": "path",
                         "required": true
                     }
@@ -184,7 +184,7 @@
                 "tags": [
                     "Tasks"
                 ],
-                "summary": "Create a new task for a household",
+                "summary": "Create a new task for a choregroup",
                 "parameters": [
                     {
                         "type": "string",
@@ -195,8 +195,8 @@
                     },
                     {
                         "type": "string",
-                        "description": "Household ID",
-                        "name": "householdID",
+                        "description": "ChoreGroup ID",
+                        "name": "choregroupID",
                         "in": "path",
                         "required": true
                     },
@@ -220,7 +220,7 @@
                 }
             }
         },
-        "/households/{householdID}/tasks/{taskID}/status": {
+        "/choregroups/{choregroupID}/tasks/{taskID}/status": {
             "put": {
                 "security": [
                     {
@@ -241,8 +241,8 @@
                     },
                     {
                         "type": "string",
-                        "description": "Household ID",
-                        "name": "householdID",
+                        "description": "ChoreGroup ID",
+                        "name": "choregroupID",
                         "in": "path",
                         "required": true
                     },
@@ -269,41 +269,11 @@
                         "schema": {
                             "type": "string"
                         }
-                    },
-                    "400": {
-                        "description": "Bad Request",
-                        "schema": {
-                            "type": "string"
-                        }
-                    },
-                    "403": {
-                        "description": "Forbidden",
-                        "schema": {
-                            "type": "string"
-                        }
-                    },
-                    "404": {
-                        "description": "Not Found (e.g., task not found, no pending submission)",
-                        "schema": {
-                            "type": "string"
-                        }
-                    },
-                    "409": {
-                        "description": "Conflict (e.g., task already approved)",
-                        "schema": {
-                            "type": "string"
-                        }
-                    },
-                    "500": {
-                        "description": "Internal Server Error",
-                        "schema": {
-                            "type": "string"
-                        }
                     }
                 }
             }
         },
-        "/households/{householdID}/tasks/{taskID}/submit": {
+        "/choregroups/{choregroupID}/tasks/{taskID}/submit": {
             "post": {
                 "security": [
                     {
@@ -324,8 +294,8 @@
                     },
                     {
                         "type": "string",
-                        "description": "Household ID",
-                        "name": "householdID",
+                        "description": "ChoreGroup ID",
+                        "name": "choregroupID",
                         "in": "path",
                         "required": true
                     },
@@ -391,7 +361,7 @@
                 "tags": [
                     "Auth"
                 ],
-                "summary": "Sign up a new household and admin user",
+                "summary": "Sign up a new choregroup and admin user",
                 "parameters": [
                     {
                         "description": "Signup Details",
@@ -424,10 +394,10 @@
                 "tags": [
                     "Auth"
                 ],
-                "summary": "Add a user to an existing household",
+                "summary": "Add a user to an existing choregroup",
                 "parameters": [
                     {
-                        "description": "User and Household Details",
+                        "description": "User and ChoreGroup Details",
                         "name": "user",
                         "in": "body",
                         "required": true,
@@ -451,13 +421,14 @@
         "model.AddUserRequest": {
             "type": "object",
             "properties": {
-                "household_name": {
+                "choregroup_name": {
                     "type": "string"
                 },
                 "password": {
                     "type": "string"
                 },
                 "user_role": {
+                    "description": "Should be 'user' or 'admin'",
                     "type": "string"
                 },
                 "username": {
@@ -496,7 +467,7 @@
         "model.LoginResponse": {
             "type": "object",
             "properties": {
-                "household_id": {
+                "choregroup_id": {
                     "type": "string"
                 },
                 "role": {
@@ -510,7 +481,7 @@
         "model.SignUpRequest": {
             "type": "object",
             "properties": {
-                "household_name": {
+                "choregroup_name": {
                     "type": "string"
                 },
                 "password": {
@@ -527,7 +498,7 @@
                 "assigned_to_user_id": {
                     "type": "string"
                 },
-                "household_id": {
+                "choregroup_id": {
                     "type": "string"
                 },
                 "id": {
@@ -537,7 +508,6 @@
                     "type": "integer"
                 },
                 "status": {
-                    "description": "Added Status field",
                     "type": "string"
                 },
                 "title": {
@@ -580,7 +550,7 @@
         "model.User": {
             "type": "object",
             "properties": {
-                "household_id": {
+                "choregroup_id": {
                     "type": "string"
                 },
                 "id": {
