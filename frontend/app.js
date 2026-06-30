@@ -589,9 +589,9 @@ async function renderParentDashboard() {
       
       const controlsHtml = `
         <div class="card-controls">
-          ${task.status !== "pending_approval" && task.status !== "expired" ? `<button class="btn-icon" onclick="openEditChoreModal('${task.id}')" title="Edit Chore">✏️</button>` : ''}
-          ${task.status === "expired" ? `<button class="btn-icon" onclick="openEditChoreModal('${task.id}')" title="Extend/Edit Chore">✏️</button>` : ''}
-          <button class="btn-icon btn-icon-danger" onclick="deleteChore('${task.id}')" title="Delete Chore">🗑️</button>
+          ${task.status !== "pending_approval" && task.status !== "expired" ? `<button class="btn btn-outline btn-sm" onclick="openEditChoreModal('${task.id}')">✏️ Edit</button>` : ''}
+          ${task.status === "expired" ? `<button class="btn btn-outline btn-sm" onclick="openEditChoreModal('${task.id}')">✏️ Edit</button>` : ''}
+          <button class="btn btn-outline btn-sm" style="color: var(--destructive-red); border-color: var(--destructive-red);" onclick="deleteChore('${task.id}')">🗑️ Delete</button>
         </div>
       `;
       
@@ -1542,6 +1542,18 @@ async function renderRewardsDashboard() {
     let availableRewards = rewards.filter(r => !purchasedRewardIds.has(r.id));
     if (!isParent) {
       availableRewards = availableRewards.filter(r => r.type === 'cooperative' || !r.assigned_to_user_id || r.assigned_to_user_id === currentSession.user_id);
+      availableRewards.sort((a, b) => {
+        if (a.type !== b.type) return a.type === 'individual' ? -1 : 1;
+        return a.cost - b.cost;
+      });
+    } else {
+      availableRewards.sort((a, b) => {
+        if (a.type !== b.type) return a.type === 'individual' ? -1 : 1;
+        const aAssigned = a.assigned_to_user_id ? 1 : 0;
+        const bAssigned = b.assigned_to_user_id ? 1 : 0;
+        if (aAssigned !== bAssigned) return aAssigned - bAssigned;
+        return a.cost - b.cost;
+      });
     }
     
     if (isParent) {
@@ -1991,13 +2003,12 @@ window.openEditChoreModal = openEditChoreModal;
 window.deleteChore = deleteChore;
 window.approveSubmission = approveSubmission;
 window.rejectSubmission = rejectSubmission;
-window.deleteUser = deleteUser;
 window.openEditRewardModal = openEditRewardModal;
-window.deleteReward = deleteReward;
-window.buyReward = buyReward;
-window.approvePurchase = approvePurchase;
-window.fulfillPurchase = fulfillPurchase;
-window.cancelPurchase = cancelPurchase;
+window.handleDeleteReward = handleDeleteReward;
+window.handleBuyReward = handleBuyReward;
+window.handleVotePurchase = handleVotePurchase;
+window.handleFulfillPurchase = handleFulfillPurchase;
+window.handleCancelPurchase = handleCancelPurchase;
+window.submitChoreForApproval = submitChoreForApproval;
 window.simulateHeroChoreCompletion = simulateHeroChoreCompletion;
 window.switchParentRewardSubTab = switchParentRewardSubTab;
-window.switchKidRewardSubTab = switchKidRewardSubTab;
