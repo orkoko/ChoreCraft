@@ -1,0 +1,45 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="256" height="256">
+  <defs>
+    <!-- Deep Space/Tech Blue Background Gradient -->
+    <linearGradient id="bgGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#42A5F5" />
+      <stop offset="100%" stop-color="#0D47A1" />
+    </linearGradient>
+
+    <!-- 3D Gold Gradient for the Achievement Star -->
+    <linearGradient id="goldGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#FFEA00" />
+      <stop offset="100%" stop-color="#FF8F00" />
+    </linearGradient>
+
+    <!-- Drop Shadows and Glows -->
+    <filter id="shadow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="12" stdDeviation="12" flood-color="#000000" flood-opacity="0.5"/>
+    </filter>
+    <filter id="neonGlow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="0" stdDeviation="8" flood-color="#2ECC71" flood-opacity="1"/>
+    </filter>
+  </defs>
+
+  <!-- App Icon Base Squircle -->
+  <rect width="512" height="512" rx="115" fill="url(#bgGrad)" />
+  
+  <!-- Subtle inner glassmorphism ring -->
+  <rect x="24" y="24" width="464" height="464" rx="95" fill="none" stroke="#FFFFFF" stroke-opacity="0.15" stroke-width="6" />
+
+  <!-- The Dimensional Gold Star (Rewards) -->
+  <path d="M256 100 L303 195 L408 210 L332 284 L350 388 L256 339 L162 388 L180 284 L104 210 L209 195 Z" fill="url(#goldGrad)" filter="url(#shadow)" />
+
+  <!-- The Neon Completion Checkmark -->
+  <path d="M170 280 L230 340 L370 180" fill="none" stroke="#2ECC71" stroke-width="48" stroke-linecap="round" stroke-linejoin="round" filter="url(#neonGlow)"/>
+  <path d="M170 280 L230 340 L370 180" fill="none" stroke="#FFFFFF" stroke-width="20" stroke-linecap="round" stroke-linejoin="round" />
+
+  <!-- Level-Up Sparkles -->
+  <circle cx="120" cy="140" r="14" fill="#FFFFFF" opacity="0.9" />
+  <circle cx="120" cy="140" r="6" fill="#FFEA00" />
+  
+  <circle cx="410" cy="360" r="18" fill="#FFFFFF" opacity="0.8" />
+  <circle cx="410" cy="360" r="8" fill="#FFEA00" />
+  
+  <circle cx="380" cy="110" r="10" fill="#FFFFFF" opacity="0.6" />
+</svg>

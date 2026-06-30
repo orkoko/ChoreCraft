@@ -1,0 +1,13 @@
+{
+  "name": "chorecraft-web",
+  "version": "1.0.0",
+  "description": "Gamified household chore and AI-driven reward ecosystem client mockup conforming to the ChoreCraft Swagger API spec.",
+  "scripts": {
+    "dev": "vite --host",
+    "build": "vite build",
+    "preview": "vite preview"
+  },
+  "devDependencies": {
+    "vite": "^5.3.1"
+  }
+}

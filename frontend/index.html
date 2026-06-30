@@ -1,0 +1,452 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ChoreCraft - Gamified Chores & Rewards</title>
+  <!-- Google Fonts: Nunito for rounded, child-friendly, modern typography -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Nunito:ital,wght@0,300..900;1,300..900&display=swap" rel="stylesheet">
+  <!-- Stylesheet -->
+  <link rel="icon" type="image/svg+xml" href="icon.svg">
+  <link rel="stylesheet" href="styles.css">
+  <link rel="manifest" href="manifest.json">
+</head>
+<body>
+
+  <!-- TOP NAVIGATION BAR -->
+  <header class="app-header">
+    <div class="header-container">
+      <div class="logo-group" onclick="handleLogoClick()">
+        <img src="icon.svg" class="logo-icon" alt="ChoreCraft Icon" style="width: 32px; height: 32px;">
+        <span class="logo-text">ChoreCraft</span>
+      </div>
+      <div id="header-user-stats" style="display: none; font-size: 1.15rem; font-weight: 800; color: var(--text-main); align-items: center; gap: 0.5rem; margin: 0 auto;"></div>
+      <!-- Navigation disabled for simplified view -->
+      <div class="auth-status" id="auth-status-container">
+        <!-- Dynamically filled by JS -->
+        <button class="btn btn-primary" onclick="openAuthModal('parent-signup')">Create ChoreCraft household</button>
+      </div>
+    </div>
+  </header>
+
+  <!-- MAIN WRAPPER -->
+  <main>
+    <!-- 1. LANDING PAGE SECTION -->
+    <section id="landing-page" class="view-section active">
+      <div class="minimal-hero-container">
+        <h1 class="minimal-hero-title">ChoreCraft</h1>
+        <p class="hero-subtitle">Make chores fun with gamification! ✨</p>
+        <div class="hero-examples">
+          <div class="hero-example-card">
+            <h3>🧹 Do the chores</h3>
+            <p>Earn points by completing tasks like folding laundry or walking the dog.</p>
+          </div>
+          <div class="hero-example-card">
+            <h3>🎁 Get rewards</h3>
+            <p>Redeem your points for cool rewards like extra screen time or a new toy.</p>
+          </div>
+        </div>
+        <button class="btn btn-primary btn-lg" onclick="openAuthModal('parent-signup')">Create ChoreCraft household 🚀</button>
+        <button id="add-to-home-screen" class="btn btn-secondary btn-sm" style="display: none; margin-top: 1rem;">Add to Home Screen</button>
+      </div>
+    </section>
+
+    <!-- 2. PARENT CONTROL PANEL VIEW -->
+    <section id="parent-view" class="view-section">
+      <div class="dashboard-container">
+        
+        <div class="dashboard-nav-tabs">
+          <button id="parent-tab-chores" class="dash-tab active" onclick="switchParentTab('chores')">📋 Chores</button>
+          <button id="parent-tab-rewards" class="dash-tab" onclick="switchParentTab('rewards')">🎁 Rewards</button>
+        </div>
+
+        <!-- Chores Tab Content -->
+        <div id="parent-chores-content" class="tab-content active">
+          <div class="parent-chores-layout">
+
+            <!-- TOP: PENDING APPROVALS (most actionable, shown first) -->
+            <div class="pending-submissions-block" id="parent-pending-submissions-container">
+              <h3>⏳ Pending Approvals</h3>
+              <div class="pending-list" id="parent-pending-list">
+                <!-- Dynamically filled with Approve/Reject buttons -->
+              </div>
+            </div>
+
+            <!-- MIDDLE: ACTIVE CHORES LIST -->
+            <div class="parent-chores-area">
+              <div class="section-title-row" style="justify-content: flex-end;">
+                <h3 style="display: none;">📋 Active Chores</h3>
+                <button class="btn btn-primary btn-sm" onclick="openAddChoreModal()">➕ Add Chore</button>
+              </div>
+              <div class="chores-grid" id="parent-chores-list">
+                <!-- Dynamically populated with Edit/Delete capabilities -->
+              </div>
+            </div>
+
+            <!-- BOTTOM: FAMILY STATS + MEMBERS -->
+            <div class="parent-bottom-row">
+              <!-- HOUSEHOLD STATISTICS -->
+              <div class="family-members-block">
+                <h3>📊 Family Stats</h3>
+                <div id="parent-stats-container"></div>
+              </div>
+
+              <!-- MEMBERS & STATUS -->
+              <div class="family-members-block">
+                <h3>👥 Family Members</h3>
+                <div class="members-list" id="parent-members-list">
+                  <!-- Dynamically populated -->
+                </div>
+                <button class="btn btn-outline btn-block btn-sm" onclick="openAddUserModal()">➕ Add Family Member</button>
+              </div>
+            </div>
+
+          </div>
+        </div>
+
+
+        <!-- Rewards Tab Content -->
+        <div id="parent-rewards-content" class="tab-content" style="display: none;">
+          <div class="rewards-dashboard-header" style="display: flex; justify-content: center; padding-bottom: 1rem; border-bottom: none;">
+            <button class="btn btn-primary btn-sm" onclick="openAddRewardModal()">➕ Add Reward</button>
+          </div>
+
+          <div class="parent-rewards-layout">
+            <!-- Top: Fulfillment section first -->
+            <div class="preview-card min-padding" id="parent-rewards-fulfillment-container">
+              <h3 style="margin-bottom: 1rem; font-size: 1.1rem; color: var(--text-main);">📦 Ready for Fulfillment <span class="badge" id="parent-fulfillment-rewards-count">0</span></h3>
+              <div class="pending-list" id="parent-rewards-fulfillment-list">
+                <!-- Dynamically populated approved purchases awaiting fulfillment -->
+              </div>
+            </div>
+
+            <!-- Bottom: Available Rewards grid -->
+            <div>
+              <h3 style="display: none; margin-bottom: 1rem; font-size: 1.1rem; color: var(--text-muted);">🎁 Available Rewards</h3>
+              <div class="chores-grid" id="parent-rewards-list">
+                <!-- Dynamically populated available rewards -->
+              </div>
+            </div>
+          </div>
+        </div>
+
+
+
+      </div>
+    </section>
+
+
+    <!-- 3. KID WORKSPACE VIEW -->
+    <section id="kid-view" class="view-section">
+      <div class="dashboard-container">
+        
+        <div class="dashboard-nav-tabs">
+          <button id="kid-tab-chores" class="dash-tab active" onclick="switchKidTab('chores')">🎯 My Chores</button>
+          <button id="kid-tab-rewards" class="dash-tab" onclick="switchKidTab('rewards')">🎁 Rewards</button>
+        </div>
+
+        <!-- Chores Tab Content -->
+        <div id="kid-chores-content" class="tab-content active">
+          <div class="kid-workspace-grid" style="grid-template-columns: 1fr;">
+            <!-- CHORES LIST -->
+            <div class="kid-chores-area">
+              <h3 style="display: none;">🎯 My Chores</h3>
+              <div class="chores-grid" id="kid-chores-list">
+                <!-- Dynamically populated with large action buttons -->
+              </div>
+            </div>
+
+            <!-- SIDEBAR: MY LEADERBOARD & AI APPRAISER -->
+            <div class="kid-sidebar-area" style="display: none;">
+              <!-- STATS IN DOCK -->
+              <div class="preview-card min-padding">
+                <h3>📊 My Stats</h3>
+                <div id="kid-stats-container"></div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Rewards Tab Content -->
+        <div id="kid-rewards-content" class="tab-content" style="display: none;">
+          <div class="kid-rewards-layout">
+
+            <!-- TOP SECTION: Stats + Pending (shown first) -->
+            <div class="kid-rewards-top-bar">
+              <!-- STATS -->
+              <div class="preview-card min-padding kid-rewards-stats-card" style="display: none;">
+                <h3>📊 My Stats</h3>
+                <div id="kid-rewards-stats-container"></div>
+              </div>
+
+              <!-- MY PENDING REWARDS -->
+              <div class="pending-submissions-block kid-rewards-pending-card" id="kid-rewards-my-pending-container">
+                <h3>📦 My Pending Rewards</h3>
+                <div class="pending-list" id="kid-rewards-my-pending-list">
+                  <!-- Dynamically populated purchases awaiting fulfillment -->
+                </div>
+              </div>
+
+              <!-- AWAITING VOTE -->
+              <div class="pending-submissions-block kid-rewards-pending-card" id="kid-rewards-pending-container">
+                <h3>⏳ Awaiting My Vote</h3>
+                <div class="pending-list" id="kid-rewards-pending-list">
+                  <!-- Dynamically populated cooperative reward purchases awaiting kid's vote -->
+                </div>
+              </div>
+            </div>
+
+            <div class="kid-chores-area">
+              <h3 style="display: none; margin-bottom: 1rem; font-size: 1.1rem; color: var(--text-muted);">🎁 Available Rewards</h3>
+              <div class="chores-grid" id="kid-rewards-list">
+                <!-- Dynamically populated available rewards -->
+              </div>
+            </div>
+
+          </div>
+        </div>
+
+
+      </div>
+    </section>
+
+  </main>
+
+  <!-- AUTHENTICATION MODAL (DUAL STATE: SIGNUP & LOGIN) -->
+  <div class="modal-backdrop" id="auth-modal">
+    <div class="modal-card">
+      <button class="modal-close-btn" onclick="closeModal('auth-modal')">×</button>
+      
+      <!-- SIGNUP FORM (Create Household) -->
+      <div class="auth-panel" id="parent-signup-form">
+        <h3>Create Household Account</h3>
+        <form onsubmit="handleParentSignUp(event)">
+          <div class="form-group">
+            <label for="p-signup-group">Household / Family Name</label>
+            <input type="text" id="p-signup-group" placeholder="e.g., Or & Liat's House" required>
+          </div>
+          <div class="form-group">
+            <label for="p-signup-admin">Admin Username</label>
+            <input type="text" id="p-signup-admin" placeholder="e.g., Liat" required>
+          </div>
+          <div class="form-group">
+            <label for="p-signup-pass">Admin Password</label>
+            <input type="password" id="p-signup-pass" placeholder="Create admin password" required>
+          </div>
+          <button type="submit" class="btn btn-primary btn-block">Generate Household & Sign Up 🚀</button>
+        </form>
+        <div class="auth-switch-note text-center">
+          Already have a household? <a href="#" onclick="toggleAuthForm('login')">Log In here</a>.
+        </div>
+      </div>
+
+      <!-- UNIFIED LOGIN FORM -->
+      <div class="auth-panel" id="parent-login-form" style="display: none;">
+        <h3>Log In</h3>
+        <form onsubmit="handleLogin(event)">
+          <div class="form-group">
+            <label for="p-login-user">Username</label>
+            <input type="text" id="p-login-user" placeholder="Enter your username" required>
+          </div>
+          <div class="form-group">
+            <label for="p-login-pass">Password</label>
+            <input type="password" id="p-login-pass" placeholder="Enter password" required>
+          </div>
+          <button type="submit" class="btn btn-primary btn-block">Log In 🚪</button>
+        </form>
+        <div class="auth-switch-note text-center">
+          Need to register a new family? <a href="#" onclick="toggleAuthForm('signup')">Sign Up here</a>.
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ADD/EDIT CHORE MODAL (PARENT SCRIPTS) -->
+  <div class="modal-backdrop" id="chore-modal">
+    <div class="modal-card">
+      <button class="modal-close-btn" onclick="closeModal('chore-modal')">×</button>
+      <h3 id="chore-modal-title">Create New Chore</h3>
+      
+      <form onsubmit="handleSaveChore(event)">
+        <input type="hidden" id="chore-id-input">
+        
+        <div class="form-group">
+          <label for="chore-title-input">Chore Name</label>
+          <input type="text" id="chore-title-input" placeholder="e.g., Sweep Kitchen, Make Bed, Wash Dishes" required>
+        </div>
+
+        <div class="form-group">
+          <label for="chore-type-input">Chore Type</label>
+          <select id="chore-type-input" onchange="toggleChoreType(this.value)" required>
+            <option value="individual" selected>Individual Task (Assigned to one kid)</option>
+            <option value="cooperative">Cooperative Task (Open to all kids)</option>
+          </select>
+        </div>
+
+        <div class="form-group checkbox-group" style="display: flex; align-items: center; gap: 0.5rem; margin-top: 1rem;">
+          <input type="checkbox" id="chore-mandatory-input" onchange="toggleMandatoryChore(this.checked)" style="width: 1.2rem; height: 1.2rem; margin: 0; cursor: pointer;">
+          <label for="chore-mandatory-input" style="margin: 0; cursor: pointer;">Is Mandatory?</label>
+        </div>
+
+        <div class="form-row">
+          <div class="form-group flex-1" id="chore-points-group">
+            <label for="chore-points-input">Coins Reward <span class="points-coin" id="chore-points-coin">🐱</span></label>
+            <div class="custom-select-container" id="points-select-container">
+              <div class="custom-select-trigger" id="points-select-trigger">
+                <span>+5 <span class="points-coin" id="chore-points-coin">🐱</span></span>
+                <span class="arrow">▼</span>
+              </div>
+              <div class="custom-select-options" id="points-select-options">
+                <div class="custom-select-option" data-value="1"><span>+1</span> <span class="points-coin">🐱</span></div>
+                <div class="custom-select-option" data-value="2"><span>+2</span> <span class="points-coin">🐱</span></div>
+                <div class="custom-select-option" data-value="3"><span>+3</span> <span class="points-coin">🐱</span></div>
+                <div class="custom-select-option" data-value="4"><span>+4</span> <span class="points-coin">🐱</span></div>
+                <div class="custom-select-option selected" data-value="5"><span>+5</span> <span class="points-coin">🐱</span></div>
+                <div class="custom-select-option" data-value="10"><span>+10</span> <span class="points-coin">🐱</span></div>
+              </div>
+              <input type="hidden" id="chore-points-input" value="5">
+            </div>
+          </div>
+          <div class="form-group flex-1" id="chore-assignee-group">
+            <label for="chore-assignee-input">Assign To</label>
+            <select id="chore-assignee-input">
+              <!-- Populated by JS -->
+            </select>
+          </div>
+        </div>
+
+        <div class="form-group" style="margin-top: 1rem;">
+          <label for="chore-timer-input">Chore Expiration (Timer)</label>
+          <select id="chore-timer-input">
+            <option value="none" selected>No timer (does not expire)</option>
+            <option value="keep" id="chore-timer-keep-option" style="display: none;">Keep current timer</option>
+            <option value="15m">15 Minutes</option>
+            <option value="30m">30 Minutes</option>
+            <option value="1h">1 Hour</option>
+            <option value="2h">2 Hours</option>
+            <option value="12h">12 Hours</option>
+            <option value="24h">24 Hours</option>
+          </select>
+          <span id="chore-timer-status-helper" style="font-size: 0.85rem; color: var(--text-muted); display: block; margin-top: 0.25rem;"></span>
+        </div>
+
+        <button type="submit" class="btn btn-primary btn-block" style="margin-top: 1.5rem;">Save</button>
+      </form>
+    </div>
+  </div>
+
+  <!-- ADD/EDIT REWARD MODAL (PARENT SCRIPTS) -->
+  <div class="modal-backdrop" id="reward-modal">
+    <div class="modal-card">
+      <button class="modal-close-btn" onclick="closeModal('reward-modal')">×</button>
+      <h3 id="reward-modal-title">Create New Reward</h3>
+      
+      <form onsubmit="handleSaveReward(event)">
+        <input type="hidden" id="reward-id-input">
+        
+        <div class="form-group">
+          <label for="reward-name-input">Reward Name</label>
+          <input type="text" id="reward-name-input" placeholder="e.g., Ice Cream, 1 Hour Screen Time, New Toy" required>
+        </div>
+
+        <div class="form-group">
+          <label for="reward-description-input">Description (Optional)</label>
+          <textarea id="reward-description-input" placeholder="Explain what the reward is..." rows="3" style="width: 100%; font-family: var(--font-family); border: 2px solid var(--border-color); border-radius: var(--radius-lg); padding: 0.85rem 1.25rem; font-size: 1rem; outline: none; transition: all 0.2s ease; resize: vertical;"></textarea>
+        </div>
+
+        <div class="form-group">
+          <label for="reward-type-input">Reward Type</label>
+          <select id="reward-type-input" onchange="toggleRewardType(this.value)" required>
+            <option value="individual" selected>Individual Reward (Purchased by a single user)</option>
+            <option value="cooperative">Cooperative Reward (Requires everyone's approval & points)</option>
+          </select>
+        </div>
+
+        <div class="form-row">
+          <div class="form-group flex-1">
+            <label for="reward-cost-input">Points Cost <span class="points-coin">🐱</span></label>
+            <input type="number" id="reward-cost-input" min="1" placeholder="e.g. 50, 100, 500" required>
+          </div>
+          <div class="form-group flex-1" id="reward-assignee-group">
+            <label for="reward-assignee-input">Assigned to (Optional)</label>
+            <select id="reward-assignee-input">
+              <option value="">-- Open to all members --</option>
+              <!-- Populated by JS -->
+            </select>
+          </div>
+        </div>
+
+        <button type="submit" class="btn btn-primary btn-block">Save Reward</button>
+      </form>
+    </div>
+  </div>
+
+  <!-- ADD USER TO HOUSEHOLD MODAL (PARENT SCRIPTS) -->
+  <div class="modal-backdrop" id="add-user-modal">
+    <div class="modal-card">
+      <button class="modal-close-btn" onclick="closeModal('add-user-modal')">×</button>
+      <h3>Add Family Member</h3>
+      
+      <form onsubmit="handleAddUserSubmit(event)">
+        <div class="form-group">
+          <label for="new-member-name">Member Name</label>
+          <input type="text" id="new-member-name" placeholder="e.g., Shira, Amit, Liat" required>
+        </div>
+        <div class="form-group">
+          <label for="new-member-pass">Account Password (for Kid Login)</label>
+          <input type="password" id="new-member-pass" placeholder="Enter password (e.g. 1234)" required>
+        </div>
+        <div class="form-group">
+          <label for="new-member-groupname">Verify Family Name</label>
+          <input type="text" id="new-member-groupname" placeholder="Verify your Family Name (e.g. Happy Family)" required>
+        </div>
+        <div class="form-group">
+          <label for="new-member-role">Account Role</label>
+          <select id="new-member-role" required>
+            <option value="user" selected>Kid (User - chore execution)</option>
+            <option value="admin">Parent (Admin - control panel)</option>
+          </select>
+        </div>
+        <button type="submit" class="btn btn-primary btn-block">Create Profile 🚀</button>
+      </form>
+    </div>
+  </div>
+
+  <!-- CONFETTI / ALERTS OVERLAYS -->
+  <div class="notification-toast" id="toast-message">Task submitted! Waiting for Parent approval.</div>
+
+  <!-- SCRIPTS -->
+  <script src="app.js"></script>
+  <script>
+    let deferredPrompt;
+    const addToHomeScreenBtn = document.getElementById('add-to-home-screen');
+
+    window.addEventListener('beforeinstallprompt', (e) => {
+      // Prevent Chrome 67 and earlier from automatically showing the prompt
+      e.preventDefault();
+      // Stash the event so it can be triggered later.
+      deferredPrompt = e;
+      // Update UI to notify the user they can add to home screen
+      addToHomeScreenBtn.style.display = 'block';
+    });
+
+    addToHomeScreenBtn.addEventListener('click', (e) => {
+      // hide our user interface that shows our A2HS button
+      addToHomeScreenBtn.style.display = 'none';
+      // Show the prompt
+      deferredPrompt.prompt();
+      // Wait for the user to respond to the prompt
+      deferredPrompt.userChoice.then((choiceResult) => {
+        if (choiceResult.outcome === 'accepted') {
+          console.log('User accepted the A2HS prompt');
+        } else {
+          console.log('User dismissed the A2HS prompt');
+        }
+        deferredPrompt = null;
+      });
+    });
+  </script>
+</body>
+</html>
