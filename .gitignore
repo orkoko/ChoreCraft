@@ -30,7 +30,17 @@ go.work.sum
 # IDE & OS specific
 # JetBrains IDEs
 .idea/
+.vscode/
+.DS_Store
+.DS_Store?
+ehthumbs.db
+Thumbs.db
 
-# Editor/IDE
-# .idea/
-# .vscode/
+# Log files
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Scratch files
+backend/list_models.go

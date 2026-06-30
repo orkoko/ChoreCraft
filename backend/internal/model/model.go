@@ -1,6 +1,7 @@
 package model
 
 import (
+	"encoding/json"
 	"time"
 
 	"github.com/google/uuid"
@@ -10,8 +11,9 @@ import (
 
 // ChoreGroup represents the choregroups table.
 type ChoreGroup struct {
-	ID   uuid.UUID `json:"id"`
-	Name string    `json:"name"`
+	ID                uuid.UUID `json:"id"`
+	Name              string    `json:"name"`
+	CooperativePoints int       `json:"cooperative_points"`
 }
 
 // User represents the users table.
@@ -32,7 +34,9 @@ type Task struct {
 	Title            string     `json:"title"`
 	Type             string     `json:"type"`
 	PointsReward     int        `json:"points_reward"`
+	IsMandatory      bool       `json:"is_mandatory"`
 	Status           string     `json:"status"`
+	ExpiresAt        *time.Time `json:"expires_at,omitempty"`
 }
 
 // TaskSubmission represents the task_submissions table.
@@ -42,6 +46,26 @@ type TaskSubmission struct {
 	SubmittedBy uuid.UUID `json:"submitted_by"`
 	Status      string    `json:"status"`
 	CreatedAt   time.Time `json:"created_at"`
+}
+
+// Reward represents the rewards table.
+type Reward struct {
+	ID               uuid.UUID  `json:"id"`
+	ChoreGroupID     uuid.UUID  `json:"choregroup_id"`
+	Name             string     `json:"name"`
+	Description      *string    `json:"description,omitempty"`
+	Cost             int        `json:"cost"`
+	Type             string     `json:"type"`
+	AssignedToUserID *uuid.UUID `json:"assigned_to_user_id,omitempty"`
+}
+
+// RewardPurchase represents the reward_purchases table.
+type RewardPurchase struct {
+	ID                 uuid.UUID       `json:"id"`
+	RewardID           uuid.UUID       `json:"reward_id"`
+	PurchasedByUserID  uuid.UUID       `json:"purchased_by_user_id"`
+	Status             string          `json:"status"`
+	Approvals          json.RawMessage `json:"approvals,omitempty"`
 }
 
 
@@ -80,10 +104,52 @@ type CreateTaskRequest struct {
 	Title            string     `json:"title"`
 	Type             string     `json:"type"`
 	PointsReward     int        `json:"points_reward"`
+	IsMandatory      bool       `json:"is_mandatory"`
 	AssignedToUserID *uuid.UUID `json:"assigned_to_user_id,omitempty"`
+	ExpiresAt        *time.Time `json:"expires_at,omitempty"`
+}
+
+// UpdateTaskRequest defines the body for updating an existing task.
+type UpdateTaskRequest struct {
+	Title            string     `json:"title"`
+	Type             string     `json:"type"`
+	PointsReward     int        `json:"points_reward"`
+	IsMandatory      bool       `json:"is_mandatory"`
+	AssignedToUserID *uuid.UUID `json:"assigned_to_user_id,omitempty"`
+	ExpiresAt        *time.Time `json:"expires_at,omitempty"`
 }
 
 // UpdateSubmissionRequest defines the body for approving or rejecting a submission.
 type UpdateSubmissionRequest struct {
 	Action string `json:"action"` // "approve" or "reject"
+}
+
+// StatisticsResponse defines the data returned by the statistics endpoint.
+type StatisticsResponse struct {
+	Users             []User `json:"users"`
+	CooperativePoints int    `json:"cooperative_points"`
+}
+
+// CreateRewardRequest defines the body for creating a new reward.
+type CreateRewardRequest struct {
+	Name             string     `json:"name"`
+	Description      *string    `json:"description,omitempty"`
+	Cost             int        `json:"cost"`
+	Type             string     `json:"type"`
+	AssignedToUserID *uuid.UUID `json:"assigned_to_user_id,omitempty"`
+}
+
+// CreatePurchaseRequest defines the body for creating a new reward purchase.
+type CreatePurchaseRequest struct {
+	RewardID uuid.UUID `json:"reward_id"`
+}
+
+// CreateApprovalRequest defines the body for approving a reward purchase.
+type CreateApprovalRequest struct {
+	Vote string `json:"vote"` // "approved" or "rejected"
+}
+
+// UpdatePurchaseStatusRequest defines the body for updating a purchase status.
+type UpdatePurchaseStatusRequest struct {
+	Status string `json:"status"` // "fulfilled"
 }

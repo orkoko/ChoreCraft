@@ -8,8 +8,9 @@ import (
 
 // Config holds the application's configuration.
 type Config struct {
-	DatabaseURL string
-	Port        string
+	DatabaseURL  string
+	Port         string
+	GeminiAPIKey string
 }
 
 // Load loads the configuration from environment variables.
@@ -18,8 +19,9 @@ func Load() (*Config, error) {
 	_ = godotenv.Load()
 
 	cfg := &Config{
-		DatabaseURL: getEnv("DATABASE_URL", "postgres://user:password@localhost:5432/chorecraft?sslmode=disable"),
-		Port:        getEnv("PORT", "8080"),
+		DatabaseURL:  getEnv("DATABASE_URL", "postgres://user:password@localhost:5432/chorecraft?sslmode=disable"),
+		Port:         getEnv("PORT", "8080"),
+		GeminiAPIKey: getEnv("GEMINI_API_KEY", ""),
 	}
 
 	return cfg, nil

@@ -6,9 +6,6 @@ import (
 	"log/slog"
 	"net/http"
 	"os"
-	"os/signal"
-	"syscall"
-	"time"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -53,40 +50,23 @@ func main() {
 		os.Exit(1)
 	}
 
-	r := setupRouter(dbpool)
+	r := setupRouter(dbpool, cfg)
 
 	srv := &http.Server{
 		Addr:    ":" + cfg.Port,
 		Handler: r,
 	}
 
-	go func() {
-		logger.Info("starting server", "address", srv.Addr)
-		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			logger.Error("could not start server", "error", err)
-			os.Exit(1)
-		}
-	}()
-
-	quit := make(chan os.Signal, 1)
-	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
-	<-quit
-	logger.Info("shutting down server...")
-
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-
-	if err := srv.Shutdown(ctx); err != nil {
-		logger.Error("server shutdown failed", "error", err)
+	logger.Info("starting server", "address", srv.Addr)
+	if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+		logger.Error("could not start server", "error", err)
 		os.Exit(1)
 	}
-
-	logger.Info("server exited properly")
 }
 
-func setupRouter(dbpool *pgxpool.Pool) *chi.Mux {
+func setupRouter(dbpool *pgxpool.Pool, cfg *config.Config) *chi.Mux {
 	repo := repository.New(dbpool)
-	svc := service.New(repo)
+	svc := service.New(repo, cfg.GeminiAPIKey)
 	api := handler.New(svc)
 
 	r := chi.NewRouter()

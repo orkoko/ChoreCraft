@@ -4,7 +4,8 @@ CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 -- Create the choregroups table if it doesn't exist
 CREATE TABLE IF NOT EXISTS choregroups (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    name VARCHAR(255) NOT NULL UNIQUE
+    name VARCHAR(255) NOT NULL UNIQUE,
+    cooperative_points INTEGER NOT NULL DEFAULT 0 CHECK (cooperative_points >= 0)
 );
 
 -- Create the users table if it doesn't exist
@@ -36,3 +37,37 @@ CREATE TABLE IF NOT EXISTS task_submissions (
     status VARCHAR(50) NOT NULL CHECK (status IN ('pending_approval', 'approved', 'rejected')),
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
+
+-- Create the rewards table if it doesn't exist
+CREATE TABLE IF NOT EXISTS rewards (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    choregroup_id UUID NOT NULL REFERENCES choregroups(id) ON DELETE CASCADE,
+    name VARCHAR(255) NOT NULL,
+    description TEXT,
+    cost INTEGER NOT NULL CHECK (cost > 0),
+    type VARCHAR(50) NOT NULL CHECK (type IN ('individual', 'cooperative')),
+    assigned_to_user_id UUID REFERENCES users(id) ON DELETE SET NULL
+);
+
+-- Create the reward_purchases table if it doesn't exist
+CREATE TABLE IF NOT EXISTS reward_purchases (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    reward_id UUID NOT NULL REFERENCES rewards(id) ON DELETE CASCADE,
+    purchased_by_user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    status VARCHAR(50) NOT NULL CHECK (status IN ('pending_approval', 'approved', 'fulfilled', 'rejected')),
+    approvals JSONB
+);
+
+-- Add is_mandatory to tasks
+ALTER TABLE tasks ADD COLUMN IF NOT EXISTS is_mandatory BOOLEAN NOT NULL DEFAULT FALSE;
+
+-- Create the icon_mappings table to store AI-generated emojis for keywords
+CREATE TABLE IF NOT EXISTS icon_mappings (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    keyword VARCHAR(100) NOT NULL UNIQUE,
+    emoji VARCHAR(10) NOT NULL
+);
+
+-- Add expires_at to tasks for time-limited tasks
+ALTER TABLE tasks ADD COLUMN IF NOT EXISTS expires_at TIMESTAMP WITH TIME ZONE;
+

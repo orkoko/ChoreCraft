@@ -48,6 +48,15 @@ definitions:
       username:
         type: string
     type: object
+  model.StatisticsResponse:
+    properties:
+      cooperative_points:
+        type: integer
+      users:
+        items:
+          $ref: '#/definitions/model.User'
+        type: array
+    type: object
   model.Task:
     properties:
       assigned_to_user_id:
@@ -84,6 +93,17 @@ definitions:
         description: '"approve" or "reject"'
         type: string
     type: object
+  model.UpdateTaskRequest:
+    properties:
+      assigned_to_user_id:
+        type: string
+      points_reward:
+        type: integer
+      title:
+        type: string
+      type:
+        type: string
+    type: object
   model.User:
     properties:
       choregroup_id:
@@ -104,31 +124,6 @@ info:
   title: ChoreCraft API
   version: "1.0"
 paths:
-  /choregroups/{choregroupID}/leaderboard:
-    get:
-      parameters:
-      - description: User ID
-        in: header
-        name: X-User-ID
-        required: true
-        type: string
-      - description: ChoreGroup ID
-        in: path
-        name: choregroupID
-        required: true
-        type: string
-      responses:
-        "200":
-          description: OK
-          schema:
-            items:
-              $ref: '#/definitions/model.User'
-            type: array
-      security:
-      - ApiKeyAuth: []
-      summary: Get choregroup leaderboard
-      tags:
-      - Users
   /choregroups/{choregroupID}/members:
     get:
       parameters:
@@ -154,6 +149,57 @@ paths:
       summary: Get all members of a choregroup
       tags:
       - Users
+  /choregroups/{choregroupID}/members/{userID}:
+    delete:
+      parameters:
+      - description: Admin User ID
+        in: header
+        name: X-User-ID
+        required: true
+        type: string
+      - description: ChoreGroup ID
+        in: path
+        name: choregroupID
+        required: true
+        type: string
+      - description: User ID to delete
+        in: path
+        name: userID
+        required: true
+        type: string
+      responses:
+        "204":
+          description: No Content
+          schema:
+            type: string
+      security:
+      - ApiKeyAuth: []
+      summary: Delete a user
+      tags:
+      - Admin
+  /choregroups/{choregroupID}/statistics:
+    get:
+      parameters:
+      - description: User ID
+        in: header
+        name: X-User-ID
+        required: true
+        type: string
+      - description: ChoreGroup ID
+        in: path
+        name: choregroupID
+        required: true
+        type: string
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/model.StatisticsResponse'
+      security:
+      - ApiKeyAuth: []
+      summary: Get choregroup statistics (user points and cooperative points)
+      tags:
+      - Statistics
   /choregroups/{choregroupID}/submissions:
     get:
       parameters:
@@ -166,6 +212,10 @@ paths:
         in: path
         name: choregroupID
         required: true
+        type: string
+      - description: Filter by status (e.g., pending_approval, approved)
+        in: query
+        name: status
         type: string
       responses:
         "200":
@@ -237,6 +287,71 @@ paths:
       summary: Create a new task for a choregroup
       tags:
       - Tasks
+  /choregroups/{choregroupID}/tasks/{taskID}:
+    delete:
+      parameters:
+      - description: Admin User ID
+        in: header
+        name: X-User-ID
+        required: true
+        type: string
+      - description: ChoreGroup ID
+        in: path
+        name: choregroupID
+        required: true
+        type: string
+      - description: Task ID
+        in: path
+        name: taskID
+        required: true
+        type: string
+      responses:
+        "204":
+          description: No Content
+          schema:
+            type: string
+      security:
+      - ApiKeyAuth: []
+      summary: Delete a task
+      tags:
+      - Admin
+    put:
+      consumes:
+      - application/json
+      parameters:
+      - description: Admin User ID
+        in: header
+        name: X-User-ID
+        required: true
+        type: string
+      - description: ChoreGroup ID
+        in: path
+        name: choregroupID
+        required: true
+        type: string
+      - description: Task ID
+        in: path
+        name: taskID
+        required: true
+        type: string
+      - description: Task details
+        in: body
+        name: task
+        required: true
+        schema:
+          $ref: '#/definitions/model.UpdateTaskRequest'
+      produces:
+      - application/json
+      responses:
+        "204":
+          description: No Content
+          schema:
+            type: string
+      security:
+      - ApiKeyAuth: []
+      summary: Update an existing task
+      tags:
+      - Admin
   /choregroups/{choregroupID}/tasks/{taskID}/status:
     put:
       parameters:

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 
 	"github.com/go-chi/chi/v5"
@@ -26,15 +27,20 @@ const (
 // API holds the dependencies for the API handlers.
 type API struct {
 	service *service.Service
+	broker  *Broker
 }
 
 // New creates a new API instance.
 func New(s *service.Service) *API {
-	return &API{service: s}
+	return &API{
+		service: s,
+		broker:  NewBroker(),
+	}
 }
 
 // RegisterRoutes registers the API routes.
 func (a *API) RegisterRoutes(r *chi.Mux) {
+	r.Use(corsMiddleware)
 	r.Use(middleware.Logger)
 
 	// Public routes
@@ -46,13 +52,32 @@ func (a *API) RegisterRoutes(r *chi.Mux) {
 	// Protected routes
 	r.Route("/api/choregroups/{choregroupID}", func(r chi.Router) {
 		r.Use(a.authMiddleware)
+		// SSE Events
+		r.Get("/events", a.eventsSSE)
+		// Tasks
 		r.Get("/tasks", a.listTasks)
 		r.Post("/tasks", a.createTask)
+		r.Put("/tasks/{taskID}", a.updateTask)
+		r.Delete("/tasks/{taskID}", a.deleteTask)
 		r.Post("/tasks/{taskID}/submit", a.submitTask)
-		r.Get("/leaderboard", a.getLeaderboard)
-		r.Get("/members", a.getChoreGroupMembers)
-		r.Get("/submissions", a.listSubmissions)
 		r.Put("/tasks/{taskID}/status", a.updateTaskStatusByAdmin)
+		// Submissions
+		r.Get("/submissions", a.listSubmissions)
+		// Users & Stats
+		r.Get("/statistics", a.getStatistics)
+		r.Get("/members", a.getChoreGroupMembers)
+		r.Delete("/members/{userID}", a.deleteUser)
+		// Rewards
+		r.Post("/rewards", a.createReward)
+		r.Get("/rewards", a.listRewards)
+		r.Put("/rewards/{rewardID}", a.updateReward)
+		r.Delete("/rewards/{rewardID}", a.deleteReward)
+		// Purchases
+		r.Post("/purchases", a.createPurchase)
+		r.Get("/purchases", a.listPurchases)
+		r.Post("/purchases/{purchaseID}/approvals", a.createApproval)
+		r.Put("/purchases/{purchaseID}/status", a.updatePurchaseStatus)
+		r.Delete("/purchases/{purchaseID}", a.cancelPurchase)
 	})
 }
 
@@ -80,8 +105,50 @@ func (a *API) signup(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Internal server error", http.StatusInternalServerError)
 		return
 	}
+
 	w.WriteHeader(http.StatusCreated)
 	json.NewEncoder(w).Encode(user)
+}
+
+func (a *API) eventsSSE(w http.ResponseWriter, r *http.Request) {
+	choregroupID, err := uuid.Parse(chi.URLParam(r, "choregroupID"))
+	if err != nil {
+		http.Error(w, "Invalid ChoreGroup ID", http.StatusBadRequest)
+		return
+	}
+
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("Connection", "keep-alive")
+
+	flusher, ok := w.(http.Flusher)
+	if !ok {
+		http.Error(w, "Streaming unsupported", http.StatusInternalServerError)
+		return
+	}
+
+	// Create a channel for this client
+	clientChan := make(chan string, 10)
+	a.broker.AddClient(choregroupID, clientChan)
+
+	// Remove client when connection drops
+	defer a.broker.RemoveClient(choregroupID, clientChan)
+
+	ctx := r.Context()
+
+	// Send initial connection success message
+	fmt.Fprintf(w, "data: connected\n\n")
+	flusher.Flush()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case event := <-clientChan:
+			fmt.Fprintf(w, "data: %s\n\n", event)
+			flusher.Flush()
+		}
+	}
 }
 
 // login godoc
@@ -160,13 +227,83 @@ func (a *API) createTask(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
-	createdTask, err := a.service.CreateTask(r.Context(), user.ChoreGroupID, req)
+	onResolved := func() { a.broker.Broadcast(user.ChoreGroupID, "refresh") }
+	createdTask, err := a.service.CreateTask(r.Context(), user.ChoreGroupID, req, onResolved)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 	w.WriteHeader(http.StatusCreated)
 	json.NewEncoder(w).Encode(createdTask)
+	a.broker.Broadcast(user.ChoreGroupID, "refresh")
+}
+
+// updateTask godoc
+// @Summary      Update an existing task
+// @Tags         Admin
+// @Security     ApiKeyAuth
+// @Accept       json
+// @Produce      json
+// @Param        X-User-ID    header    string                   true  "Admin User ID"
+// @Param        choregroupID path      string                   true  "ChoreGroup ID"
+// @Param        taskID       path      string                   true  "Task ID"
+// @Param        task         body      model.UpdateTaskRequest  true  "Task details"
+// @Success      204          {string}  string                   "No Content"
+// @Router       /choregroups/{choregroupID}/tasks/{taskID} [put]
+func (a *API) updateTask(w http.ResponseWriter, r *http.Request) {
+	user := r.Context().Value(userKey).(model.User)
+	taskID, err := uuid.Parse(chi.URLParam(r, "taskID"))
+	if err != nil {
+		http.Error(w, "Invalid task ID", http.StatusBadRequest)
+		return
+	}
+
+	var req model.UpdateTaskRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	onResolved := func() { a.broker.Broadcast(user.ChoreGroupID, "refresh") }
+	err = a.service.UpdateTask(r.Context(), user, taskID, req, onResolved)
+	if errors.Is(err, service.ErrForbidden) {
+		http.Error(w, "Forbidden", http.StatusForbidden)
+		return
+	} else if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+	a.broker.Broadcast(user.ChoreGroupID, "refresh")
+}
+
+// deleteTask godoc
+// @Summary      Delete a task
+// @Tags         Admin
+// @Security     ApiKeyAuth
+// @Param        X-User-ID    header    string  true  "Admin User ID"
+// @Param        choregroupID path      string  true  "ChoreGroup ID"
+// @Param        taskID       path      string  true  "Task ID"
+// @Success      204          {string}  string  "No Content"
+// @Router       /choregroups/{choregroupID}/tasks/{taskID} [delete]
+func (a *API) deleteTask(w http.ResponseWriter, r *http.Request) {
+	user := r.Context().Value(userKey).(model.User)
+	taskID, err := uuid.Parse(chi.URLParam(r, "taskID"))
+	if err != nil {
+		http.Error(w, "Invalid task ID", http.StatusBadRequest)
+		return
+	}
+
+	err = a.service.DeleteTask(r.Context(), user, taskID)
+	if errors.Is(err, service.ErrForbidden) {
+		http.Error(w, "Forbidden", http.StatusForbidden)
+		return
+	} else if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+	a.broker.Broadcast(user.ChoreGroupID, "refresh")
 }
 
 // listTasks godoc
@@ -179,7 +316,7 @@ func (a *API) createTask(w http.ResponseWriter, r *http.Request) {
 // @Router       /choregroups/{choregroupID}/tasks [get]
 func (a *API) listTasks(w http.ResponseWriter, r *http.Request) {
 	user := r.Context().Value(userKey).(model.User)
-	tasks, err := a.service.ListTasks(r.Context(), user.ChoreGroupID, user.ID)
+	tasks, err := a.service.ListTasks(r.Context(), user)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -206,6 +343,7 @@ func (a *API) submitTask(w http.ResponseWriter, r *http.Request) {
 	}
 	w.WriteHeader(http.StatusCreated)
 	json.NewEncoder(w).Encode(submission)
+	a.broker.Broadcast(user.ChoreGroupID, "refresh")
 }
 
 // updateTaskStatusByAdmin godoc
@@ -247,24 +385,25 @@ func (a *API) updateTaskStatusByAdmin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
+	a.broker.Broadcast(user.ChoreGroupID, "refresh")
 }
 
-// getLeaderboard godoc
-// @Summary      Get choregroup leaderboard
-// @Tags         Users
+// getStatistics godoc
+// @Summary      Get choregroup statistics (user points and cooperative points)
+// @Tags         Statistics
 // @Security     ApiKeyAuth
 // @Param        X-User-ID    header    string  true  "User ID"
 // @Param        choregroupID path      string  true  "ChoreGroup ID"
-// @Success      200          {array}   model.User
-// @Router       /choregroups/{choregroupID}/leaderboard [get]
-func (a *API) getLeaderboard(w http.ResponseWriter, r *http.Request) {
+// @Success      200          {object}  model.StatisticsResponse
+// @Router       /choregroups/{choregroupID}/statistics [get]
+func (a *API) getStatistics(w http.ResponseWriter, r *http.Request) {
 	user := r.Context().Value(userKey).(model.User)
-	users, err := a.service.GetLeaderboard(r.Context(), user.ChoreGroupID)
+	stats, err := a.service.GetStatistics(r.Context(), user.ChoreGroupID)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	json.NewEncoder(w).Encode(users)
+	json.NewEncoder(w).Encode(stats)
 }
 
 // getChoreGroupMembers godoc
@@ -285,12 +424,49 @@ func (a *API) getChoreGroupMembers(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(members)
 }
 
+// deleteUser godoc
+// @Summary      Delete a user
+// @Tags         Admin
+// @Security     ApiKeyAuth
+// @Param        X-User-ID    header    string  true  "Admin User ID"
+// @Param        choregroupID path      string  true  "ChoreGroup ID"
+// @Param        userID       path      string  true  "User ID to delete"
+// @Success      204          {string}  string  "No Content"
+// @Router       /choregroups/{choregroupID}/members/{userID} [delete]
+func (a *API) deleteUser(w http.ResponseWriter, r *http.Request) {
+	user := r.Context().Value(userKey).(model.User)
+	if user.Role != "admin" {
+		http.Error(w, "Forbidden: only admins can delete users", http.StatusForbidden)
+		return
+	}
+
+	userIDToDelete, err := uuid.Parse(chi.URLParam(r, "userID"))
+	if err != nil {
+		http.Error(w, "Invalid user ID", http.StatusBadRequest)
+		return
+	}
+
+	err = a.service.DeleteUser(r.Context(), user, userIDToDelete)
+	if errors.Is(err, service.ErrForbidden) {
+		http.Error(w, "Forbidden", http.StatusForbidden)
+		return
+	} else if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+	a.broker.Broadcast(user.ChoreGroupID, "refresh")
+}
+
 // authMiddleware fetches the user from the database and performs authorization.
 func (a *API) authMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		userIDStr := r.Header.Get("X-User-ID")
 		if userIDStr == "" {
-			http.Error(w, "Unauthorized: Missing X-User-ID header", http.StatusUnauthorized)
+			userIDStr = r.URL.Query().Get("user_id") // Fallback for EventSource
+		}
+		if userIDStr == "" {
+			http.Error(w, "Unauthorized: Missing X-User-ID header or user_id query param", http.StatusUnauthorized)
 			return
 		}
 		userID, err := uuid.Parse(userIDStr)
@@ -319,8 +495,9 @@ func (a *API) authMiddleware(next http.Handler) http.Handler {
 // @Summary      List submissions for a choregroup
 // @Tags         Admin
 // @Security     ApiKeyAuth
-// @Param        X-User-ID    header    string  true  "Admin User ID"
-// @Param        choregroupID path      string  true  "ChoreGroup ID"
+// @Param        X-User-ID    header    string  true    "Admin User ID"
+// @Param        choregroupID path      string  true    "ChoreGroup ID"
+// @Param        status       query     string  false   "Filter by status (e.g., pending_approval, approved)"
 // @Success      200          {array}   model.TaskSubmission
 // @Router       /choregroups/{choregroupID}/submissions [get]
 func (a *API) listSubmissions(w http.ResponseWriter, r *http.Request) {
@@ -329,10 +506,164 @@ func (a *API) listSubmissions(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Forbidden: only admins can list submissions", http.StatusForbidden)
 		return
 	}
-	submissions, err := a.service.ListSubmissions(r.Context(), user.ChoreGroupID)
+
+	status := r.URL.Query().Get("status")
+	if status == "" {
+		status = "pending_approval"
+	}
+
+	submissions, err := a.service.ListSubmissions(r.Context(), user.ChoreGroupID, status)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 	json.NewEncoder(w).Encode(submissions)
+}
+
+// --- Reward Handlers ---
+
+func (a *API) createReward(w http.ResponseWriter, r *http.Request) {
+	user := r.Context().Value(userKey).(model.User)
+	var req model.CreateRewardRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	onResolved := func() { a.broker.Broadcast(user.ChoreGroupID, "refresh") }
+	reward, err := a.service.CreateReward(r.Context(), user, req, onResolved)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	w.WriteHeader(http.StatusCreated)
+	json.NewEncoder(w).Encode(reward)
+	a.broker.Broadcast(user.ChoreGroupID, "refresh")
+}
+
+func (a *API) listRewards(w http.ResponseWriter, r *http.Request) {
+	user := r.Context().Value(userKey).(model.User)
+	rewards, err := a.service.ListRewards(r.Context(), user.ChoreGroupID)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	json.NewEncoder(w).Encode(rewards)
+}
+
+func (a *API) updateReward(w http.ResponseWriter, r *http.Request) {
+	user := r.Context().Value(userKey).(model.User)
+	rewardID, _ := uuid.Parse(chi.URLParam(r, "rewardID"))
+	var req model.CreateRewardRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	onResolved := func() { a.broker.Broadcast(user.ChoreGroupID, "refresh") }
+	if err := a.service.UpdateReward(r.Context(), user, rewardID, req, onResolved); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+	a.broker.Broadcast(user.ChoreGroupID, "refresh")
+}
+
+func (a *API) deleteReward(w http.ResponseWriter, r *http.Request) {
+	user := r.Context().Value(userKey).(model.User)
+	rewardID, _ := uuid.Parse(chi.URLParam(r, "rewardID"))
+	if err := a.service.DeleteReward(r.Context(), user, rewardID); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+	a.broker.Broadcast(user.ChoreGroupID, "refresh")
+}
+
+func (a *API) createPurchase(w http.ResponseWriter, r *http.Request) {
+	user := r.Context().Value(userKey).(model.User)
+	var req model.CreatePurchaseRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	purchase, err := a.service.CreatePurchase(r.Context(), user, req)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	w.WriteHeader(http.StatusCreated)
+	json.NewEncoder(w).Encode(purchase)
+	a.broker.Broadcast(user.ChoreGroupID, "refresh")
+}
+
+func (a *API) listPurchases(w http.ResponseWriter, r *http.Request) {
+	user := r.Context().Value(userKey).(model.User)
+	status := r.URL.Query().Get("status")
+	purchases, err := a.service.ListPurchases(r.Context(), user, status)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	json.NewEncoder(w).Encode(purchases)
+}
+
+func (a *API) createApproval(w http.ResponseWriter, r *http.Request) {
+	user := r.Context().Value(userKey).(model.User)
+	purchaseID, _ := uuid.Parse(chi.URLParam(r, "purchaseID"))
+	var req model.CreateApprovalRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	if err := a.service.CreateApproval(r.Context(), user, purchaseID, req); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+	a.broker.Broadcast(user.ChoreGroupID, "refresh")
+}
+
+func (a *API) updatePurchaseStatus(w http.ResponseWriter, r *http.Request) {
+	user := r.Context().Value(userKey).(model.User)
+	purchaseID, _ := uuid.Parse(chi.URLParam(r, "purchaseID"))
+	var req model.UpdatePurchaseStatusRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	if err := a.service.UpdatePurchaseStatus(r.Context(), user, purchaseID, req); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+	a.broker.Broadcast(user.ChoreGroupID, "refresh")
+}
+
+func (a *API) cancelPurchase(w http.ResponseWriter, r *http.Request) {
+	user := r.Context().Value(userKey).(model.User)
+	purchaseID, _ := uuid.Parse(chi.URLParam(r, "purchaseID"))
+	if err := a.service.CancelPurchase(r.Context(), user, purchaseID); err != nil {
+		if err == service.ErrForbidden {
+			http.Error(w, err.Error(), http.StatusForbidden)
+		} else {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+		}
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+	a.broker.Broadcast(user.ChoreGroupID, "refresh")
+}
+
+func corsMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Access-Control-Allow-Origin", "*")
+		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
+		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization, X-User-ID")
+
+		if r.Method == "OPTIONS" {
+			w.WriteHeader(http.StatusOK)
+			return
+		}
+
+		next.ServeHTTP(w, r)
+	})
 }
