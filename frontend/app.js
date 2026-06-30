@@ -1966,3 +1966,38 @@ async function handleExtendTask(taskId) {
     alert("Failed to extend task: " + err.message);
   }
 }
+
+// Bind handlers to the window object to support ES modules type="module" in index.html
+window.handleLogoClick = handleLogoClick;
+window.openAuthModal = openAuthModal;
+window.logout = logout;
+window.switchParentTab = switchParentTab;
+window.switchKidTab = switchKidTab;
+window.closeModal = closeModal;
+window.toggleAuthForm = toggleAuthForm;
+window.openAddChoreModal = openAddChoreModal;
+window.openAddUserModal = openAddUserModal;
+window.openAddRewardModal = openAddRewardModal;
+window.handleParentSignUp = handleParentSignUp;
+window.handleLogin = handleLogin;
+window.handleSaveChore = handleSaveChore;
+window.handleSaveReward = handleSaveReward;
+window.handleAddUserSubmit = handleAddUserSubmit;
+window.toggleChoreType = toggleChoreType;
+window.toggleMandatoryChore = toggleMandatoryChore;
+window.toggleRewardType = toggleRewardType;
+window.handleExtendTask = handleExtendTask;
+window.openEditChoreModal = openEditChoreModal;
+window.deleteChore = deleteChore;
+window.approveSubmission = approveSubmission;
+window.rejectSubmission = rejectSubmission;
+window.deleteUser = deleteUser;
+window.openEditRewardModal = openEditRewardModal;
+window.deleteReward = deleteReward;
+window.buyReward = buyReward;
+window.approvePurchase = approvePurchase;
+window.fulfillPurchase = fulfillPurchase;
+window.cancelPurchase = cancelPurchase;
+window.simulateHeroChoreCompletion = simulateHeroChoreCompletion;
+window.switchParentRewardSubTab = switchParentRewardSubTab;
+window.switchKidRewardSubTab = switchKidRewardSubTab;
