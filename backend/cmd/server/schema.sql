@@ -12,10 +12,11 @@ CREATE TABLE IF NOT EXISTS choregroups (
 CREATE TABLE IF NOT EXISTS users (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     choregroup_id UUID NOT NULL REFERENCES choregroups(id) ON DELETE CASCADE,
-    username VARCHAR(255) NOT NULL UNIQUE,
+    username VARCHAR(255) NOT NULL,
     password_hash TEXT NOT NULL,
     role VARCHAR(50) NOT NULL CHECK (role IN ('admin', 'user')),
-    points INTEGER NOT NULL DEFAULT 0 CHECK (points >= 0)
+    points INTEGER NOT NULL DEFAULT 0 CHECK (points >= 0),
+    CONSTRAINT users_choregroup_username_key UNIQUE (choregroup_id, username)
 );
 
 -- Create the tasks table if it doesn't exist
@@ -70,4 +71,10 @@ CREATE TABLE IF NOT EXISTS icon_mappings (
 
 -- Add expires_at to tasks for time-limited tasks
 ALTER TABLE tasks ADD COLUMN IF NOT EXISTS expires_at TIMESTAMP WITH TIME ZONE;
+
+-- Migration to make username unique per choregroup instead of globally unique
+ALTER TABLE users DROP CONSTRAINT IF EXISTS users_username_key;
+ALTER TABLE users DROP CONSTRAINT IF EXISTS users_choregroup_username_key;
+ALTER TABLE users ADD CONSTRAINT users_choregroup_username_key UNIQUE (choregroup_id, username);
+
 

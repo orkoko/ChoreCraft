@@ -59,7 +59,7 @@ func TestMain(m *testing.M) {
 		log.Fatalf("could not execute schema for test database: %v", err)
 	}
 
-	testRouter = setupRouter(testDbPool, &config.Config{GeminiAPIKey: "dummy_key"})
+	testRouter = setupRouter(testDbPool, &config.Config{GeminiAPIKey: "dummy_key", JWTSecret: "test-secret-key-1234567890"})
 	exitCode := m.Run()
 	os.Exit(exitCode)
 }
@@ -102,6 +102,12 @@ func TestAuthAndFullFlow(t *testing.T) {
 	rrLoginA := performRequest(t, reqLoginA, http.StatusOK)
 	var adminALogin model.LoginResponse
 	json.NewDecoder(rrLoginA.Body).Decode(&adminALogin)
+	var tokenA string
+	for _, c := range rrLoginA.Result().Cookies() {
+		if c.Name == "token" {
+			tokenA = c.Value
+		}
+	}
 
 	loginReqUserA := model.LoginRequest{Username: "user_a", Password: "password123"}
 	loginBodyUserA, _ := json.Marshal(loginReqUserA)
@@ -109,13 +115,19 @@ func TestAuthAndFullFlow(t *testing.T) {
 	rrLoginUserA := performRequest(t, reqLoginUserA, http.StatusOK)
 	var userALogin model.LoginResponse
 	json.NewDecoder(rrLoginUserA.Body).Decode(&userALogin)
+	var tokenUserA string
+	for _, c := range rrLoginUserA.Result().Cookies() {
+		if c.Name == "token" {
+			tokenUserA = c.Value
+		}
+	}
 
 	// Create task
 	taskA := model.CreateTaskRequest{Title: "Mow the lawn", Type: "individual", PointsReward: 100}
 	taskABody, _ := json.Marshal(taskA)
 	createTaskURL := fmt.Sprintf("/api/choregroups/%s/tasks", adminALogin.ChoreGroupID)
 	reqCreate, _ := http.NewRequest("POST", createTaskURL, bytes.NewBuffer(taskABody))
-	reqCreate.Header.Set("X-User-ID", adminALogin.UserID.String())
+	reqCreate.Header.Set("Authorization", "Bearer "+tokenA)
 	rrCreate := performRequest(t, reqCreate, http.StatusCreated)
 	var createdTask model.Task
 	json.NewDecoder(rrCreate.Body).Decode(&createdTask)
@@ -123,7 +135,7 @@ func TestAuthAndFullFlow(t *testing.T) {
 	// Submit task
 	submitURL := fmt.Sprintf("/api/choregroups/%s/tasks/%s/submit", userALogin.ChoreGroupID, createdTask.ID)
 	reqSubmit, _ := http.NewRequest("POST", submitURL, nil)
-	reqSubmit.Header.Set("X-User-ID", userALogin.UserID.String())
+	reqSubmit.Header.Set("Authorization", "Bearer "+tokenUserA)
 	performRequest(t, reqSubmit, http.StatusCreated)
 
 	// Approve submission
@@ -131,7 +143,7 @@ func TestAuthAndFullFlow(t *testing.T) {
 	approvePayload := model.UpdateSubmissionRequest{Action: "approve"}
 	approveBody, _ := json.Marshal(approvePayload)
 	reqApprove, _ := http.NewRequest("PUT", approveURL, bytes.NewBuffer(approveBody))
-	reqApprove.Header.Set("X-User-ID", adminALogin.UserID.String())
+	reqApprove.Header.Set("Authorization", "Bearer "+tokenA)
 	performRequest(t, reqApprove, http.StatusNoContent)
 }
 
@@ -161,6 +173,12 @@ func TestAssignedTaskVisibility(t *testing.T) {
 	rrLoginAdmin := performRequest(t, reqLoginAdmin, http.StatusOK)
 	var admin model.LoginResponse
 	json.NewDecoder(rrLoginAdmin.Body).Decode(&admin)
+	var tokenAdmin string
+	for _, c := range rrLoginAdmin.Result().Cookies() {
+		if c.Name == "token" {
+			tokenAdmin = c.Value
+		}
+	}
 
 	loginGalReq := model.LoginRequest{Username: "gal", Password: "pw"}
 	loginGalBody, _ := json.Marshal(loginGalReq)
@@ -168,6 +186,12 @@ func TestAssignedTaskVisibility(t *testing.T) {
 	rrLoginGal := performRequest(t, reqLoginGal, http.StatusOK)
 	var gal model.LoginResponse
 	json.NewDecoder(rrLoginGal.Body).Decode(&gal)
+	var tokenGal string
+	for _, c := range rrLoginGal.Result().Cookies() {
+		if c.Name == "token" {
+			tokenGal = c.Value
+		}
+	}
 
 	loginRonReq := model.LoginRequest{Username: "ron", Password: "pw"}
 	loginRonBody, _ := json.Marshal(loginRonReq)
@@ -175,6 +199,12 @@ func TestAssignedTaskVisibility(t *testing.T) {
 	rrLoginRon := performRequest(t, reqLoginRon, http.StatusOK)
 	var ron model.LoginResponse
 	json.NewDecoder(rrLoginRon.Body).Decode(&ron)
+	var tokenRon string
+	for _, c := range rrLoginRon.Result().Cookies() {
+		if c.Name == "token" {
+			tokenRon = c.Value
+		}
+	}
 
 	// 2. Admin creates a public task and a private task assigned to Gal
 	publicTask := model.CreateTaskRequest{Title: "Wash the dishes", Type: "cooperative", PointsReward: 20}
@@ -184,20 +214,19 @@ func TestAssignedTaskVisibility(t *testing.T) {
 
 	publicTaskBody, _ := json.Marshal(publicTask)
 	reqCreatePublic, _ := http.NewRequest("POST", createURL, bytes.NewBuffer(publicTaskBody))
-	reqCreatePublic.Header.Set("X-User-ID", admin.UserID.String())
+	reqCreatePublic.Header.Set("Authorization", "Bearer "+tokenAdmin)
 	performRequest(t, reqCreatePublic, http.StatusCreated)
 
 	privateTaskBody, _ := json.Marshal(privateTask)
 	reqCreatePrivate, _ := http.NewRequest("POST", createURL, bytes.NewBuffer(privateTaskBody))
-	reqCreatePrivate.Header.Set("X-User-ID", admin.UserID.String())
+	reqCreatePrivate.Header.Set("Authorization", "Bearer "+tokenAdmin)
 	performRequest(t, reqCreatePrivate, http.StatusCreated)
 
 	// 3. Test what Admin sees
 	t.Run("Admin sees all tasks", func(t *testing.T) {
-		t.Parallel()
 		listTasksURL := fmt.Sprintf("/api/choregroups/%s/tasks", admin.ChoreGroupID)
 		req, _ := http.NewRequest("GET", listTasksURL, nil)
-		req.Header.Set("X-User-ID", admin.UserID.String())
+		req.Header.Set("Authorization", "Bearer "+tokenAdmin)
 		rr := performRequest(t, req, http.StatusOK)
 		var tasks []model.Task
 		json.NewDecoder(rr.Body).Decode(&tasks)
@@ -208,10 +237,9 @@ func TestAssignedTaskVisibility(t *testing.T) {
 
 	// 4. Test what Gal sees
 	t.Run("Gal sees public and personal tasks", func(t *testing.T) {
-		t.Parallel()
 		listTasksURL := fmt.Sprintf("/api/choregroups/%s/tasks", gal.ChoreGroupID)
 		req, _ := http.NewRequest("GET", listTasksURL, nil)
-		req.Header.Set("X-User-ID", gal.UserID.String())
+		req.Header.Set("Authorization", "Bearer "+tokenGal)
 		rr := performRequest(t, req, http.StatusOK)
 		var tasks []model.Task
 		json.NewDecoder(rr.Body).Decode(&tasks)
@@ -222,10 +250,9 @@ func TestAssignedTaskVisibility(t *testing.T) {
 
 	// 5. Test what Ron sees
 	t.Run("Ron sees only public tasks", func(t *testing.T) {
-		t.Parallel()
 		listTasksURL := fmt.Sprintf("/api/choregroups/%s/tasks", ron.ChoreGroupID)
 		req, _ := http.NewRequest("GET", listTasksURL, nil)
-		req.Header.Set("X-User-ID", ron.UserID.String())
+		req.Header.Set("Authorization", "Bearer "+tokenRon)
 		rr := performRequest(t, req, http.StatusOK)
 		var tasks []model.Task
 		json.NewDecoder(rr.Body).Decode(&tasks)
@@ -251,13 +278,19 @@ func TestAdminEditAndDeleteTask(t *testing.T) {
 	rrLoginAdmin := performRequest(t, reqLoginAdmin, http.StatusOK)
 	var admin model.LoginResponse
 	json.NewDecoder(rrLoginAdmin.Body).Decode(&admin)
+	var tokenAdmin string
+	for _, c := range rrLoginAdmin.Result().Cookies() {
+		if c.Name == "token" {
+			tokenAdmin = c.Value
+		}
+	}
 
 	// 2. Admin creates a task
 	task := model.CreateTaskRequest{Title: "Initial Task", Type: "individual", PointsReward: 10}
 	taskBody, _ := json.Marshal(task)
 	createURL := fmt.Sprintf("/api/choregroups/%s/tasks", admin.ChoreGroupID)
 	reqCreate, _ := http.NewRequest("POST", createURL, bytes.NewBuffer(taskBody))
-	reqCreate.Header.Set("X-User-ID", admin.UserID.String())
+	reqCreate.Header.Set("Authorization", "Bearer "+tokenAdmin)
 	rrCreate := performRequest(t, reqCreate, http.StatusCreated)
 	var createdTask model.Task
 	json.NewDecoder(rrCreate.Body).Decode(&createdTask)
@@ -267,13 +300,13 @@ func TestAdminEditAndDeleteTask(t *testing.T) {
 	updateBody, _ := json.Marshal(updateReq)
 	updateURL := fmt.Sprintf("/api/choregroups/%s/tasks/%s", admin.ChoreGroupID, createdTask.ID)
 	reqUpdate, _ := http.NewRequest("PUT", updateURL, bytes.NewBuffer(updateBody))
-	reqUpdate.Header.Set("X-User-ID", admin.UserID.String())
+	reqUpdate.Header.Set("Authorization", "Bearer "+tokenAdmin)
 	performRequest(t, reqUpdate, http.StatusNoContent)
 
 	// 4. Verify the task was updated
 	listTasksURL := fmt.Sprintf("/api/choregroups/%s/tasks", admin.ChoreGroupID)
 	reqList, _ := http.NewRequest("GET", listTasksURL, nil)
-	reqList.Header.Set("X-User-ID", admin.UserID.String())
+	reqList.Header.Set("Authorization", "Bearer "+tokenAdmin)
 	rrList := performRequest(t, reqList, http.StatusOK)
 	var tasks []model.Task
 	json.NewDecoder(rrList.Body).Decode(&tasks)
@@ -284,7 +317,7 @@ func TestAdminEditAndDeleteTask(t *testing.T) {
 	// 5. Admin deletes the task
 	deleteURL := fmt.Sprintf("/api/choregroups/%s/tasks/%s", admin.ChoreGroupID, createdTask.ID)
 	reqDelete, _ := http.NewRequest("DELETE", deleteURL, nil)
-	reqDelete.Header.Set("X-User-ID", admin.UserID.String())
+	reqDelete.Header.Set("Authorization", "Bearer "+tokenAdmin)
 	performRequest(t, reqDelete, http.StatusNoContent)
 
 	// 6. Verify the task was deleted
@@ -311,6 +344,12 @@ func TestCooperativeTasksAndStatistics(t *testing.T) {
 	rrLoginAdmin := performRequest(t, reqLoginAdmin, http.StatusOK)
 	var admin model.LoginResponse
 	json.NewDecoder(rrLoginAdmin.Body).Decode(&admin)
+	var tokenAdmin string
+	for _, c := range rrLoginAdmin.Result().Cookies() {
+		if c.Name == "token" {
+			tokenAdmin = c.Value
+		}
+	}
 
 	addUser1Req := model.AddUserRequest{ChoreGroupName: "Co-op Group", Username: "user1", Password: "pw", UserRole: "user"}
 	addUser1Body, _ := json.Marshal(addUser1Req)
@@ -323,13 +362,19 @@ func TestCooperativeTasksAndStatistics(t *testing.T) {
 	rrLoginUser1 := performRequest(t, reqLoginUser1, http.StatusOK)
 	var user1 model.LoginResponse
 	json.NewDecoder(rrLoginUser1.Body).Decode(&user1)
+	var tokenUser1 string
+	for _, c := range rrLoginUser1.Result().Cookies() {
+		if c.Name == "token" {
+			tokenUser1 = c.Value
+		}
+	}
 
 	// 2. Admin creates a cooperative task
 	coopTask := model.CreateTaskRequest{Title: "Clean the garage", Type: "cooperative", PointsReward: 250}
 	coopTaskBody, _ := json.Marshal(coopTask)
 	createURL := fmt.Sprintf("/api/choregroups/%s/tasks", admin.ChoreGroupID)
 	reqCreate, _ := http.NewRequest("POST", createURL, bytes.NewBuffer(coopTaskBody))
-	reqCreate.Header.Set("X-User-ID", admin.UserID.String())
+	reqCreate.Header.Set("Authorization", "Bearer "+tokenAdmin)
 	rrCreate := performRequest(t, reqCreate, http.StatusCreated)
 	var createdCoopTask model.Task
 	json.NewDecoder(rrCreate.Body).Decode(&createdCoopTask)
@@ -337,7 +382,7 @@ func TestCooperativeTasksAndStatistics(t *testing.T) {
 	// 3. User1 submits the task
 	submitURL := fmt.Sprintf("/api/choregroups/%s/tasks/%s/submit", user1.ChoreGroupID, createdCoopTask.ID)
 	reqSubmit, _ := http.NewRequest("POST", submitURL, nil)
-	reqSubmit.Header.Set("X-User-ID", user1.UserID.String())
+	reqSubmit.Header.Set("Authorization", "Bearer "+tokenUser1)
 	performRequest(t, reqSubmit, http.StatusCreated)
 
 	// 4. Admin approves the submission
@@ -345,13 +390,13 @@ func TestCooperativeTasksAndStatistics(t *testing.T) {
 	approvePayload := model.UpdateSubmissionRequest{Action: "approve"}
 	approveBody, _ := json.Marshal(approvePayload)
 	reqApprove, _ := http.NewRequest("PUT", approveURL, bytes.NewBuffer(approveBody))
-	reqApprove.Header.Set("X-User-ID", admin.UserID.String())
+	reqApprove.Header.Set("Authorization", "Bearer "+tokenAdmin)
 	performRequest(t, reqApprove, http.StatusNoContent)
 
 	// 5. Verify the statistics
 	statsURL := fmt.Sprintf("/api/choregroups/%s/statistics", admin.ChoreGroupID)
 	reqStats, _ := http.NewRequest("GET", statsURL, nil)
-	reqStats.Header.Set("X-User-ID", admin.UserID.String())
+	reqStats.Header.Set("Authorization", "Bearer "+tokenAdmin)
 	rrStats := performRequest(t, reqStats, http.StatusOK)
 	var stats model.StatisticsResponse
 	json.NewDecoder(rrStats.Body).Decode(&stats)
@@ -383,6 +428,12 @@ func TestSubmissionFiltering(t *testing.T) {
 	rrLoginAdmin := performRequest(t, reqLoginAdmin, http.StatusOK)
 	var admin model.LoginResponse
 	json.NewDecoder(rrLoginAdmin.Body).Decode(&admin)
+	var tokenAdmin string
+	for _, c := range rrLoginAdmin.Result().Cookies() {
+		if c.Name == "token" {
+			tokenAdmin = c.Value
+		}
+	}
 
 	addUserReq := model.AddUserRequest{ChoreGroupName: "Filter Group", Username: "filter_user", Password: "pw", UserRole: "user"}
 	addUserBody, _ := json.Marshal(addUserReq)
@@ -395,26 +446,32 @@ func TestSubmissionFiltering(t *testing.T) {
 	rrLoginUser := performRequest(t, reqLoginUser, http.StatusOK)
 	var user model.LoginResponse
 	json.NewDecoder(rrLoginUser.Body).Decode(&user)
+	var tokenUser string
+	for _, c := range rrLoginUser.Result().Cookies() {
+		if c.Name == "token" {
+			tokenUser = c.Value
+		}
+	}
 
 	// 2. Create and submit a task
 	task := model.CreateTaskRequest{Title: "Filter Task", Type: "individual", PointsReward: 10}
 	taskBody, _ := json.Marshal(task)
 	createURL := fmt.Sprintf("/api/choregroups/%s/tasks", admin.ChoreGroupID)
 	reqCreate, _ := http.NewRequest("POST", createURL, bytes.NewBuffer(taskBody))
-	reqCreate.Header.Set("X-User-ID", admin.UserID.String())
+	reqCreate.Header.Set("Authorization", "Bearer "+tokenAdmin)
 	rrCreate := performRequest(t, reqCreate, http.StatusCreated)
 	var createdTask model.Task
 	json.NewDecoder(rrCreate.Body).Decode(&createdTask)
 
 	submitURL := fmt.Sprintf("/api/choregroups/%s/tasks/%s/submit", user.ChoreGroupID, createdTask.ID)
 	reqSubmit, _ := http.NewRequest("POST", submitURL, nil)
-	reqSubmit.Header.Set("X-User-ID", user.UserID.String())
+	reqSubmit.Header.Set("Authorization", "Bearer "+tokenUser)
 	performRequest(t, reqSubmit, http.StatusCreated)
 
 	// 3. Verify default (pending)
 	submissionsURL := fmt.Sprintf("/api/choregroups/%s/submissions", admin.ChoreGroupID)
 	reqDefault, _ := http.NewRequest("GET", submissionsURL, nil)
-	reqDefault.Header.Set("X-User-ID", admin.UserID.String())
+	reqDefault.Header.Set("Authorization", "Bearer "+tokenAdmin)
 	rrDefault := performRequest(t, reqDefault, http.StatusOK)
 	var pendingSubs []model.TaskSubmission
 	json.NewDecoder(rrDefault.Body).Decode(&pendingSubs)
@@ -427,20 +484,20 @@ func TestSubmissionFiltering(t *testing.T) {
 	rejectPayload := model.UpdateSubmissionRequest{Action: "reject"}
 	rejectBody, _ := json.Marshal(rejectPayload)
 	reqReject, _ := http.NewRequest("PUT", rejectURL, bytes.NewBuffer(rejectBody))
-	reqReject.Header.Set("X-User-ID", admin.UserID.String())
+	reqReject.Header.Set("Authorization", "Bearer "+tokenAdmin)
 	performRequest(t, reqReject, http.StatusNoContent)
 
 	// 5. Verify default again (should be none)
 	rrDefaultAfterReject := performRequest(t, reqDefault, http.StatusOK)
 	var noPendingSubs []model.TaskSubmission
 	json.NewDecoder(rrDefaultAfterReject.Body).Decode(&noPendingSubs)
-if len(noPendingSubs) != 0 {
+	if len(noPendingSubs) != 0 {
 		t.Errorf("Expected 0 pending submissions after rejection, got %d", len(noPendingSubs))
 	}
 
 	// 6. Verify can fetch rejected
 	reqRejected, _ := http.NewRequest("GET", submissionsURL+"?status=rejected", nil)
-	reqRejected.Header.Set("X-User-ID", admin.UserID.String())
+	reqRejected.Header.Set("Authorization", "Bearer "+tokenAdmin)
 	rrRejected := performRequest(t, reqRejected, http.StatusOK)
 	var rejectedSubs []model.TaskSubmission
 	json.NewDecoder(rrRejected.Body).Decode(&rejectedSubs)

@@ -1,5 +1,6 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -7,12 +8,14 @@
   <!-- Google Fonts: Nunito for rounded, child-friendly, modern typography -->
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Nunito:ital,wght@0,300..900;1,300..900&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Nunito:ital,wght@0,300..900;1,300..900&display=swap"
+    rel="stylesheet">
   <!-- Stylesheet -->
   <link rel="icon" type="image/svg+xml" href="icon.svg">
   <link rel="stylesheet" href="styles.css">
   <link rel="manifest" href="manifest.json">
 </head>
+
 <body>
 
   <!-- TOP NAVIGATION BAR -->
@@ -22,7 +25,9 @@
         <img src="icon.svg" class="logo-icon" alt="ChoreCraft Icon" style="width: 32px; height: 32px;">
         <span class="logo-text">ChoreCraft</span>
       </div>
-      <div id="header-user-stats" style="display: none; font-size: 1.15rem; font-weight: 800; color: var(--text-main); align-items: center; gap: 0.5rem; margin: 0 auto;"></div>
+      <div id="header-user-stats"
+        style="display: none; font-size: 1.15rem; font-weight: 800; color: var(--text-main); align-items: center; gap: 0.5rem; margin: 0 auto;">
+      </div>
       <!-- Navigation disabled for simplified view -->
       <div class="auth-status" id="auth-status-container">
         <!-- Dynamically filled by JS -->
@@ -48,15 +53,17 @@
             <p>Redeem your points for cool rewards like extra screen time or a new toy.</p>
           </div>
         </div>
-        <button class="btn btn-primary btn-lg" onclick="openAuthModal('parent-signup')">Create ChoreCraft household 🚀</button>
-        <button id="add-to-home-screen" class="btn btn-secondary btn-sm" style="display: none; margin-top: 1rem;">Add to Home Screen</button>
+        <button class="btn btn-primary btn-lg" onclick="openAuthModal('parent-signup')">Create ChoreCraft household
+          🚀</button>
+        <button id="add-to-home-screen" class="btn btn-secondary btn-sm" style="display: none; margin-top: 1rem;">Add to
+          Home Screen</button>
       </div>
     </section>
 
     <!-- 2. PARENT CONTROL PANEL VIEW -->
     <section id="parent-view" class="view-section">
       <div class="dashboard-container">
-        
+
         <div class="dashboard-nav-tabs">
           <button id="parent-tab-chores" class="dash-tab active" onclick="switchParentTab('chores')">📋 Chores</button>
           <button id="parent-tab-rewards" class="dash-tab" onclick="switchParentTab('rewards')">🎁 Rewards</button>
@@ -99,7 +106,8 @@
                 <div class="members-list" id="parent-members-list">
                   <!-- Dynamically populated -->
                 </div>
-                <button class="btn btn-outline btn-block btn-sm" onclick="openAddUserModal()">➕ Add Family Member</button>
+                <button class="btn btn-outline btn-block btn-sm" onclick="openAddUserModal()">➕ Add Family
+                  Member</button>
               </div>
             </div>
 
@@ -109,14 +117,16 @@
 
         <!-- Rewards Tab Content -->
         <div id="parent-rewards-content" class="tab-content" style="display: none;">
-          <div class="rewards-dashboard-header" style="display: flex; justify-content: center; padding-bottom: 1rem; border-bottom: none;">
+          <div class="rewards-dashboard-header"
+            style="display: flex; justify-content: center; padding-bottom: 1rem; border-bottom: none;">
             <button class="btn btn-primary btn-sm" onclick="openAddRewardModal()">➕ Add Reward</button>
           </div>
 
           <div class="parent-rewards-layout">
             <!-- Top: Fulfillment section first -->
             <div class="preview-card min-padding" id="parent-rewards-fulfillment-container">
-              <h3 style="margin-bottom: 1rem; font-size: 1.1rem; color: var(--text-main);">📦 Ready for Fulfillment <span class="badge" id="parent-fulfillment-rewards-count">0</span></h3>
+              <h3 style="margin-bottom: 1rem; font-size: 1.1rem; color: var(--text-main);">📦 Ready for Fulfillment
+                <span class="badge" id="parent-fulfillment-rewards-count">0</span></h3>
               <div class="pending-list" id="parent-rewards-fulfillment-list">
                 <!-- Dynamically populated approved purchases awaiting fulfillment -->
               </div>
@@ -124,7 +134,8 @@
 
             <!-- Bottom: Available Rewards grid -->
             <div>
-              <h3 style="display: none; margin-bottom: 1rem; font-size: 1.1rem; color: var(--text-muted);">🎁 Available Rewards</h3>
+              <h3 style="display: none; margin-bottom: 1rem; font-size: 1.1rem; color: var(--text-muted);">🎁 Available
+                Rewards</h3>
               <div class="chores-grid" id="parent-rewards-list">
                 <!-- Dynamically populated available rewards -->
               </div>
@@ -141,7 +152,7 @@
     <!-- 3. KID WORKSPACE VIEW -->
     <section id="kid-view" class="view-section">
       <div class="dashboard-container">
-        
+
         <div class="dashboard-nav-tabs">
           <button id="kid-tab-chores" class="dash-tab active" onclick="switchKidTab('chores')">🎯 My Chores</button>
           <button id="kid-tab-rewards" class="dash-tab" onclick="switchKidTab('rewards')">🎁 Rewards</button>
@@ -199,7 +210,8 @@
             </div>
 
             <div class="kid-chores-area">
-              <h3 style="display: none; margin-bottom: 1rem; font-size: 1.1rem; color: var(--text-muted);">🎁 Available Rewards</h3>
+              <h3 style="display: none; margin-bottom: 1rem; font-size: 1.1rem; color: var(--text-muted);">🎁 Available
+                Rewards</h3>
               <div class="chores-grid" id="kid-rewards-list">
                 <!-- Dynamically populated available rewards -->
               </div>
@@ -218,7 +230,7 @@
   <div class="modal-backdrop" id="auth-modal">
     <div class="modal-card">
       <button class="modal-close-btn" onclick="closeModal('auth-modal')">×</button>
-      
+
       <!-- SIGNUP FORM (Create Household) -->
       <div class="auth-panel" id="parent-signup-form">
         <h3>Create Household Account</h3>
@@ -247,6 +259,10 @@
         <h3>Log In</h3>
         <form onsubmit="handleLogin(event)">
           <div class="form-group">
+            <label for="p-login-group-name">Family Name (Optional)</label>
+            <input type="text" id="p-login-group-name" placeholder="Enter family name (only if names overlap)">
+          </div>
+          <div class="form-group">
             <label for="p-login-user">Username</label>
             <input type="text" id="p-login-user" placeholder="Enter your username" required>
           </div>
@@ -259,6 +275,61 @@
         <div class="auth-switch-note text-center">
           Need to register a new family? <a href="#" onclick="toggleAuthForm('signup')">Sign Up here</a>.
         </div>
+        <div class="auth-switch-note text-center"
+          style="margin-top: 1rem; border-top: 1px solid var(--border-color); padding-top: 1rem;">
+          🔑 <a href="#" onclick="toggleAuthForm('pin-lookup')">Log In as Kid (PIN Code)</a>
+        </div>
+      </div>
+
+      <!-- KID PIN LOGIN: LOOKUP HOUSEHOLD -->
+      <div class="auth-panel" id="kid-pin-lookup-form" style="display: none;">
+        <h3>Find Your Family</h3>
+        <form onsubmit="handleFindHousehold(event)">
+          <div class="form-group">
+            <label for="pin-lookup-family-name">Family / Household Name</label>
+            <input type="text" id="pin-lookup-family-name" placeholder="e.g. Or & Liat's House" required>
+          </div>
+          <button type="submit" class="btn btn-primary btn-block">Find Household 🔍</button>
+        </form>
+        <div class="auth-switch-note text-center"
+          style="margin-top: 1rem; border-top: 1px solid var(--border-color); padding-top: 1rem;">
+          Are you a parent? <a href="#" onclick="toggleAuthForm('login')">Go to Parent Login</a>.
+        </div>
+      </div>
+
+      <!-- KID PIN LOGIN: SELECT AVATAR -->
+      <div class="auth-panel" id="kid-pin-avatar-form" style="display: none;">
+        <h3>Who Are You?</h3>
+        <div class="avatar-grid" id="kid-avatar-list"
+          style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 1rem; margin: 1.5rem 0; justify-items: center;">
+          <!-- Kid avatars dynamically loaded here -->
+        </div>
+        <button class="btn btn-secondary btn-block" onclick="toggleAuthForm('pin-lookup')">◀ Back</button>
+      </div>
+
+      <!-- KID PIN LOGIN: ENTER PIN -->
+      <div class="auth-panel" id="kid-pin-pad-form" style="display: none;">
+        <h3 id="pin-entry-title">Enter PIN</h3>
+        <input type="password" id="pin-input-field" class="text-center"
+          style="font-size: 2rem; letter-spacing: 0.5rem; width: 100%; margin-bottom: 1.5rem; border: 2px solid var(--primary); border-radius: 8px; padding: 0.5rem;"
+          readonly maxlength="4">
+
+        <div class="pin-pad-grid"
+          style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 0.75rem; margin-bottom: 1.5rem;">
+          <button type="button" class="btn btn-outline pin-pad-btn" onclick="pressPinNumber(1)">1</button>
+          <button type="button" class="btn btn-outline pin-pad-btn" onclick="pressPinNumber(2)">2</button>
+          <button type="button" class="btn btn-outline pin-pad-btn" onclick="pressPinNumber(3)">3</button>
+          <button type="button" class="btn btn-outline pin-pad-btn" onclick="pressPinNumber(4)">4</button>
+          <button type="button" class="btn btn-outline pin-pad-btn" onclick="pressPinNumber(5)">5</button>
+          <button type="button" class="btn btn-outline pin-pad-btn" onclick="pressPinNumber(6)">6</button>
+          <button type="button" class="btn btn-outline pin-pad-btn" onclick="pressPinNumber(7)">7</button>
+          <button type="button" class="btn btn-outline pin-pad-btn" onclick="pressPinNumber(8)">8</button>
+          <button type="button" class="btn btn-outline pin-pad-btn" onclick="pressPinNumber(9)">9</button>
+          <button type="button" class="btn btn-outline pin-pad-btn" onclick="clearPinNumber()">C</button>
+          <button type="button" class="btn btn-outline pin-pad-btn" onclick="pressPinNumber(0)">0</button>
+          <button type="button" class="btn btn-primary pin-pad-btn" onclick="submitPinLogin()">OK</button>
+        </div>
+        <button class="btn btn-secondary btn-block" onclick="goBackToAvatars()">◀ Back</button>
       </div>
     </div>
   </div>
@@ -268,10 +339,10 @@
     <div class="modal-card">
       <button class="modal-close-btn" onclick="closeModal('chore-modal')">×</button>
       <h3 id="chore-modal-title">Create New Chore</h3>
-      
+
       <form onsubmit="handleSaveChore(event)">
         <input type="hidden" id="chore-id-input">
-        
+
         <div class="form-group">
           <label for="chore-title-input">Chore Name</label>
           <input type="text" id="chore-title-input" placeholder="e.g., Sweep Kitchen, Make Bed, Wash Dishes" required>
@@ -285,26 +356,35 @@
           </select>
         </div>
 
-        <div class="form-group checkbox-group" style="display: flex; align-items: center; gap: 0.5rem; margin-top: 1rem;">
-          <input type="checkbox" id="chore-mandatory-input" onchange="toggleMandatoryChore(this.checked)" style="width: 1.2rem; height: 1.2rem; margin: 0; cursor: pointer;">
+        <div class="form-group checkbox-group"
+          style="display: flex; align-items: center; gap: 0.5rem; margin-top: 1rem;">
+          <input type="checkbox" id="chore-mandatory-input" onchange="toggleMandatoryChore(this.checked)"
+            style="width: 1.2rem; height: 1.2rem; margin: 0; cursor: pointer;">
           <label for="chore-mandatory-input" style="margin: 0; cursor: pointer;">Is Mandatory?</label>
         </div>
 
         <div class="form-row">
           <div class="form-group flex-1" id="chore-points-group">
-            <label for="chore-points-input">Coins Reward <span class="points-coin" id="chore-points-coin">🐱</span></label>
+            <label for="chore-points-input">Coins Reward <span class="points-coin"
+                id="chore-points-coin">🐱</span></label>
             <div class="custom-select-container" id="points-select-container">
               <div class="custom-select-trigger" id="points-select-trigger">
                 <span>+5 <span class="points-coin" id="chore-points-coin">🐱</span></span>
                 <span class="arrow">▼</span>
               </div>
               <div class="custom-select-options" id="points-select-options">
-                <div class="custom-select-option" data-value="1"><span>+1</span> <span class="points-coin">🐱</span></div>
-                <div class="custom-select-option" data-value="2"><span>+2</span> <span class="points-coin">🐱</span></div>
-                <div class="custom-select-option" data-value="3"><span>+3</span> <span class="points-coin">🐱</span></div>
-                <div class="custom-select-option" data-value="4"><span>+4</span> <span class="points-coin">🐱</span></div>
-                <div class="custom-select-option selected" data-value="5"><span>+5</span> <span class="points-coin">🐱</span></div>
-                <div class="custom-select-option" data-value="10"><span>+10</span> <span class="points-coin">🐱</span></div>
+                <div class="custom-select-option" data-value="1"><span>+1</span> <span class="points-coin">🐱</span>
+                </div>
+                <div class="custom-select-option" data-value="2"><span>+2</span> <span class="points-coin">🐱</span>
+                </div>
+                <div class="custom-select-option" data-value="3"><span>+3</span> <span class="points-coin">🐱</span>
+                </div>
+                <div class="custom-select-option" data-value="4"><span>+4</span> <span class="points-coin">🐱</span>
+                </div>
+                <div class="custom-select-option selected" data-value="5"><span>+5</span> <span
+                    class="points-coin">🐱</span></div>
+                <div class="custom-select-option" data-value="10"><span>+10</span> <span class="points-coin">🐱</span>
+                </div>
               </div>
               <input type="hidden" id="chore-points-input" value="5">
             </div>
@@ -329,7 +409,8 @@
             <option value="12h">12 Hours</option>
             <option value="24h">24 Hours</option>
           </select>
-          <span id="chore-timer-status-helper" style="font-size: 0.85rem; color: var(--text-muted); display: block; margin-top: 0.25rem;"></span>
+          <span id="chore-timer-status-helper"
+            style="font-size: 0.85rem; color: var(--text-muted); display: block; margin-top: 0.25rem;"></span>
         </div>
 
         <button type="submit" class="btn btn-primary btn-block" style="margin-top: 1.5rem;">Save</button>
@@ -342,10 +423,10 @@
     <div class="modal-card">
       <button class="modal-close-btn" onclick="closeModal('reward-modal')">×</button>
       <h3 id="reward-modal-title">Create New Reward</h3>
-      
+
       <form onsubmit="handleSaveReward(event)">
         <input type="hidden" id="reward-id-input">
-        
+
         <div class="form-group">
           <label for="reward-name-input">Reward Name</label>
           <input type="text" id="reward-name-input" placeholder="e.g., Ice Cream, 1 Hour Screen Time, New Toy" required>
@@ -353,7 +434,8 @@
 
         <div class="form-group">
           <label for="reward-description-input">Description (Optional)</label>
-          <textarea id="reward-description-input" placeholder="Explain what the reward is..." rows="3" style="width: 100%; font-family: var(--font-family); border: 2px solid var(--border-color); border-radius: var(--radius-lg); padding: 0.85rem 1.25rem; font-size: 1rem; outline: none; transition: all 0.2s ease; resize: vertical;"></textarea>
+          <textarea id="reward-description-input" placeholder="Explain what the reward is..." rows="3"
+            style="width: 100%; font-family: var(--font-family); border: 2px solid var(--border-color); border-radius: var(--radius-lg); padding: 0.85rem 1.25rem; font-size: 1rem; outline: none; transition: all 0.2s ease; resize: vertical;"></textarea>
         </div>
 
         <div class="form-group">
@@ -388,19 +470,15 @@
     <div class="modal-card">
       <button class="modal-close-btn" onclick="closeModal('add-user-modal')">×</button>
       <h3>Add Family Member</h3>
-      
+
       <form onsubmit="handleAddUserSubmit(event)">
         <div class="form-group">
           <label for="new-member-name">Member Name</label>
           <input type="text" id="new-member-name" placeholder="e.g., Shira, Amit, Liat" required>
         </div>
         <div class="form-group">
-          <label for="new-member-pass">Account Password (for Kid Login)</label>
-          <input type="password" id="new-member-pass" placeholder="Enter password (e.g. 1234)" required>
-        </div>
-        <div class="form-group">
-          <label for="new-member-groupname">Verify Family Name</label>
-          <input type="text" id="new-member-groupname" placeholder="Verify your Family Name (e.g. Happy Family)" required>
+          <label for="new-member-pass">Account Password / PIN</label>
+          <input type="password" id="new-member-pass" placeholder="Enter password or 4-digit PIN" required>
         </div>
         <div class="form-group">
           <label for="new-member-role">Account Role</label>
@@ -411,6 +489,46 @@
         </div>
         <button type="submit" class="btn btn-primary btn-block">Create Profile 🚀</button>
       </form>
+    </div>
+  </div>
+
+  <!-- DELEGATED LOGIN LINK MODAL -->
+  <div class="modal-backdrop" id="login-link-modal">
+    <div class="modal-card">
+      <button class="modal-close-btn" onclick="closeModal('login-link-modal')">×</button>
+      <h3>Kid Access Link 🔗</h3>
+      <p style="font-size: 0.95rem; color: var(--text-muted); margin-bottom: 1rem;">
+        Share this link to your child's device to log them in automatically. Valid for 5 minutes.
+      </p>
+      <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 1rem;">
+        <input type="text" id="generated-login-link-input"
+          style="flex: 1; min-width: 0; font-family: monospace; font-size: 0.85rem; padding: 0.6rem; border: 1.5px solid #cbd5e1; border-radius: 8px; background: #f8fafc; color: #1e293b; outline: none;"
+          readonly>
+        <button onclick="copyDelegatedLink()" title="Copy to clipboard"
+          style="flex-shrink: 0; width: 42px; height: 42px; background: #e2e8f0; border: none; border-radius: 8px; cursor: pointer; display: flex; align-items: center; justify-content: center;">
+          <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#3b82f6" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+            <rect x="9" y="9" width="13" height="13" rx="2" ry="2"/>
+            <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>
+          </svg>
+        </button>
+      </div>
+      <div class="mobile-only-share" style="display: none;">
+        <p style="font-size: 0.85rem; color: #64748b; margin-bottom: 0.5rem; text-align: center;">Share via</p>
+        <div style="display: flex; justify-content: center; gap: 1rem;">
+          <button onclick="shareViaWhatsApp()" title="WhatsApp"
+            style="width: 52px; height: 52px; border-radius: 50%; border: none; background: #25D366; cursor: pointer; display: flex; align-items: center; justify-content: center; box-shadow: 0 2px 8px rgba(37,211,102,0.3);">
+            <svg xmlns="http://www.w3.org/2000/svg" width="26" height="26" viewBox="0 0 24 24" fill="white"><path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z"/></svg>
+          </button>
+          <button onclick="shareViaSMS()" title="Messages"
+            style="width: 52px; height: 52px; border-radius: 50%; border: none; background: #3b82f6; cursor: pointer; display: flex; align-items: center; justify-content: center; box-shadow: 0 2px 8px rgba(59,130,246,0.3);">
+            <svg xmlns="http://www.w3.org/2000/svg" width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+          </button>
+          <button onclick="shareViaEmail()" title="Email"
+            style="width: 52px; height: 52px; border-radius: 50%; border: none; background: #f59e0b; cursor: pointer; display: flex; align-items: center; justify-content: center; box-shadow: 0 2px 8px rgba(245,158,11,0.3);">
+            <svg xmlns="http://www.w3.org/2000/svg" width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/></svg>
+          </button>
+        </div>
+      </div>
     </div>
   </div>
 
@@ -449,4 +567,5 @@
     });
   </script>
 </body>
+
 </html>

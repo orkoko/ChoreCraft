@@ -550,7 +550,8 @@ main {
   grid-column: 2;
   grid-row: 1;
   min-width: 0;
-  padding-right: 65px; /* Leave room for points badge on the right */
+  padding-right: 65px;
+  /* Leave room for points badge on the right */
 }
 
 .card-details h3 {

@@ -114,9 +114,15 @@ func mustNewRequest(method, url string, body io.Reader) *http.Request {
 	return req
 }
 
+var userTokens = make(map[string]string)
+
 func mustNewRequestWithAuth(method, url string, body io.Reader, userID string) *http.Request {
 	req := mustNewRequest(method, url, body)
-	req.Header.Set("X-User-ID", userID)
+	if token, ok := userTokens[userID]; ok {
+		req.Header.Set("Authorization", "Bearer "+token)
+	} else {
+		req.Header.Set("X-User-ID", userID)
+	}
 	return req
 }
 
@@ -132,6 +138,14 @@ func loginUser(t *testing.T, username, password string) model.LoginResponse {
 	rr := performRequest(t, mustNewRequest("POST", "/api/login", toBody(loginReq)), http.StatusOK)
 	var loginRes model.LoginResponse
 	json.NewDecoder(rr.Body).Decode(&loginRes)
+
+	// Capture token cookie
+	cookies := rr.Result().Cookies()
+	for _, c := range cookies {
+		if c.Name == "token" {
+			userTokens[loginRes.UserID.String()] = c.Value
+		}
+	}
 	return loginRes
 }
 

@@ -11,6 +11,7 @@ type Config struct {
 	DatabaseURL  string
 	Port         string
 	GeminiAPIKey string
+	JWTSecret    string
 }
 
 // Load loads the configuration from environment variables.
@@ -22,6 +23,7 @@ func Load() (*Config, error) {
 		DatabaseURL:  getEnv("DATABASE_URL", "postgres://user:password@localhost:5432/chorecraft?sslmode=disable"),
 		Port:         getEnv("PORT", "8080"),
 		GeminiAPIKey: getEnv("GEMINI_API_KEY", ""),
+		JWTSecret:    getEnv("JWT_SECRET", "super-secret-key-for-local-dev-12345"),
 	}
 
 	return cfg, nil

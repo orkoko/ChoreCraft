@@ -68,17 +68,31 @@ func (s *Service) AddUserToChoreGroup(ctx context.Context, choregroupName, usern
 }
 
 // Login verifies a user's credentials and returns their details.
-func (s *Service) Login(ctx context.Context, username, password string) (model.LoginResponse, error) {
+func (s *Service) Login(ctx context.Context, choregroupName, username, password string) (model.LoginResponse, error) {
 	username = strings.ToLower(username)
-	user, err := s.repo.GetUserByUsername(ctx, username)
-	if err != nil {
-		return model.LoginResponse{}, ErrInvalidCredentials
+	var user model.User
+	var err error
+	if choregroupName != "" {
+		group, err := s.repo.GetChoreGroupByName(ctx, choregroupName)
+		if err != nil {
+			return model.LoginResponse{}, ErrInvalidCredentials
+		}
+		user, err = s.repo.GetUserByChoreGroupIDAndUsername(ctx, group.ID, username)
+		if err != nil {
+			return model.LoginResponse{}, ErrInvalidCredentials
+		}
+	} else {
+		user, err = s.repo.GetUserByUsername(ctx, username)
+		if err != nil {
+			return model.LoginResponse{}, ErrInvalidCredentials
+		}
 	}
 	if !checkPasswordHash(password, user.PasswordHash) {
 		return model.LoginResponse{}, ErrInvalidCredentials
 	}
 	return model.LoginResponse{
 		UserID:       user.ID,
+		Username:     user.Username,
 		ChoreGroupID: user.ChoreGroupID,
 		Role:         user.Role,
 	}, nil
@@ -109,7 +123,7 @@ func (s *Service) DeleteUser(ctx context.Context, adminUser model.User, userIDTo
 		return ErrForbidden
 	}
 
-	return s.repo.DeleteUser(ctx, userIDToDelete)
+	return s.repo.DeleteUser(ctx, userIDToDelete, adminUser.ChoreGroupID)
 }
 
 // CreateTask creates a new task from a DTO.
@@ -153,7 +167,7 @@ func (s *Service) UpdateTask(ctx context.Context, adminUser model.User, taskID u
 		return ErrForbidden
 	}
 
-	task, err := s.repo.GetTask(ctx, taskID)
+	task, err := s.repo.GetTask(ctx, taskID, adminUser.ChoreGroupID)
 	if err != nil {
 		return err
 	}
@@ -167,7 +181,7 @@ func (s *Service) UpdateTask(ctx context.Context, adminUser model.User, taskID u
 	title, needsAsync := s.ResolveEmoji(ctx, req.Title)
 	req.Title = title
 
-	err = s.repo.UpdateTask(ctx, taskID, req)
+	err = s.repo.UpdateTask(ctx, taskID, adminUser.ChoreGroupID, req)
 	if err == nil && needsAsync {
 		go func(id uuid.UUID, ot string) {
 			bgCtx := context.Background()
@@ -187,7 +201,7 @@ func (s *Service) DeleteTask(ctx context.Context, adminUser model.User, taskID u
 		return ErrForbidden
 	}
 
-	task, err := s.repo.GetTask(ctx, taskID)
+	task, err := s.repo.GetTask(ctx, taskID, adminUser.ChoreGroupID)
 	if err != nil {
 		return err
 	}
@@ -195,7 +209,7 @@ func (s *Service) DeleteTask(ctx context.Context, adminUser model.User, taskID u
 		return ErrForbidden
 	}
 
-	return s.repo.DeleteTask(ctx, taskID)
+	return s.repo.DeleteTask(ctx, taskID, adminUser.ChoreGroupID)
 }
 
 // ListTasks retrieves tasks based on the user's role.
@@ -243,7 +257,7 @@ func (s *Service) UpdateTaskStatusByAdmin(ctx context.Context, adminUser model.U
 		return ErrForbidden
 	}
 
-	task, err := s.repo.GetTask(ctx, taskID)
+	task, err := s.repo.GetTask(ctx, taskID, adminUser.ChoreGroupID)
 	if err != nil {
 		return err
 	}
@@ -257,7 +271,7 @@ func (s *Service) UpdateTaskStatusByAdmin(ctx context.Context, adminUser model.U
 	}
 
 	// Get the latest pending submission for this task
-	submission, err := s.repo.GetLatestPendingSubmissionForTask(ctx, taskID)
+	submission, err := s.repo.GetLatestPendingSubmissionForTask(ctx, taskID, adminUser.ChoreGroupID)
 	if err != nil {
 		if errors.Is(err, repository.ErrNotFound) {
 			return ErrNoPendingSubmission
@@ -271,11 +285,11 @@ func (s *Service) UpdateTaskStatusByAdmin(ctx context.Context, adminUser model.U
 			return err
 		}
 		// Update task status to "done"
-		if err := s.repo.UpdateTaskStatus(ctx, taskID, "done"); err != nil {
+		if err := s.repo.UpdateTaskStatus(ctx, taskID, adminUser.ChoreGroupID, "done"); err != nil {
 			return err
 		}
 		// Update submission status to "approved"
-		if err := s.repo.UpdateTaskSubmissionStatus(ctx, submission.ID, "approved"); err != nil {
+		if err := s.repo.UpdateTaskSubmissionStatus(ctx, submission.ID, adminUser.ChoreGroupID, "approved"); err != nil {
 			return err
 		}
 		go s.broadcastFCMNotification(taskID)
@@ -283,11 +297,11 @@ func (s *Service) UpdateTaskStatusByAdmin(ctx context.Context, adminUser model.U
 	}
 	if action == "reject" {
 		// Revert task status to "assigned"
-		if err := s.repo.UpdateTaskStatus(ctx, taskID, "assigned"); err != nil {
+		if err := s.repo.UpdateTaskStatus(ctx, taskID, adminUser.ChoreGroupID, "assigned"); err != nil {
 			return err
 		}
 		// Update submission status to "rejected"
-		if err := s.repo.UpdateTaskSubmissionStatus(ctx, submission.ID, "rejected"); err != nil {
+		if err := s.repo.UpdateTaskSubmissionStatus(ctx, submission.ID, adminUser.ChoreGroupID, "rejected"); err != nil {
 			return err
 		}
 		return nil
@@ -296,8 +310,8 @@ func (s *Service) UpdateTaskStatusByAdmin(ctx context.Context, adminUser model.U
 }
 
 // SubmitTask creates a new task submission for the logged-in user.
-func (s *Service) SubmitTask(ctx context.Context, taskID, userID uuid.UUID) (*model.TaskSubmission, error) {
-	task, err := s.repo.GetTask(ctx, taskID)
+func (s *Service) SubmitTask(ctx context.Context, taskID, userID, choregroupID uuid.UUID) (*model.TaskSubmission, error) {
+	task, err := s.repo.GetTask(ctx, taskID, choregroupID)
 	if err != nil {
 		return nil, err
 	}
@@ -319,7 +333,7 @@ func (s *Service) SubmitTask(ctx context.Context, taskID, userID uuid.UUID) (*mo
 	}
 
 	// When a task is submitted, its status should change to "pending_approval"
-	if err := s.repo.UpdateTaskStatus(ctx, taskID, "pending_approval"); err != nil {
+	if err := s.repo.UpdateTaskStatus(ctx, taskID, choregroupID, "pending_approval"); err != nil {
 		return nil, err
 	}
 
@@ -378,12 +392,11 @@ func (s *Service) ListRewards(ctx context.Context, choregroupID uuid.UUID) ([]mo
 	return s.repo.ListRewards(ctx, choregroupID)
 }
 
-// UpdateReward updates an existing reward.
 func (s *Service) UpdateReward(ctx context.Context, adminUser model.User, rewardID uuid.UUID, req model.CreateRewardRequest, onResolved func()) error {
 	if adminUser.Role != "admin" {
 		return ErrForbidden
 	}
-	reward, err := s.repo.GetReward(ctx, rewardID)
+	reward, err := s.repo.GetReward(ctx, rewardID, adminUser.ChoreGroupID)
 	if err != nil {
 		return err
 	}
@@ -393,7 +406,7 @@ func (s *Service) UpdateReward(ctx context.Context, adminUser model.User, reward
 	origName := req.Name
 	name, needsAsync := s.ResolveEmoji(ctx, req.Name)
 	req.Name = name
-	err = s.repo.UpdateReward(ctx, rewardID, req)
+	err = s.repo.UpdateReward(ctx, rewardID, adminUser.ChoreGroupID, req)
 	if err == nil && needsAsync {
 		go func(id uuid.UUID, on string) {
 			bgCtx := context.Background()
@@ -411,18 +424,18 @@ func (s *Service) DeleteReward(ctx context.Context, adminUser model.User, reward
 	if adminUser.Role != "admin" {
 		return ErrForbidden
 	}
-	reward, err := s.repo.GetReward(ctx, rewardID)
+	reward, err := s.repo.GetReward(ctx, rewardID, adminUser.ChoreGroupID)
 	if err != nil {
 		return err
 	}
 	if reward.ChoreGroupID != adminUser.ChoreGroupID {
 		return ErrForbidden
 	}
-	return s.repo.DeleteReward(ctx, rewardID)
+	return s.repo.DeleteReward(ctx, rewardID, adminUser.ChoreGroupID)
 }
 
 func (s *Service) CreatePurchase(ctx context.Context, user model.User, req model.CreatePurchaseRequest) (*model.RewardPurchase, error) {
-	reward, err := s.repo.GetReward(ctx, req.RewardID)
+	reward, err := s.repo.GetReward(ctx, req.RewardID, user.ChoreGroupID)
 	if err != nil {
 		return nil, err
 	}
@@ -486,7 +499,7 @@ func (s *Service) ListPurchases(ctx context.Context, user model.User, status str
 }
 
 func (s *Service) CreateApproval(ctx context.Context, user model.User, purchaseID uuid.UUID, req model.CreateApprovalRequest) error {
-	purchase, err := s.repo.GetRewardPurchase(ctx, purchaseID)
+	purchase, err := s.repo.GetRewardPurchase(ctx, purchaseID, user.ChoreGroupID)
 	if err != nil {
 		return err
 	}
@@ -505,7 +518,7 @@ func (s *Service) CreateApproval(ctx context.Context, user model.User, purchaseI
 
 	if req.Vote == "rejected" {
 		purchase.Status = "rejected"
-		reward, err := s.repo.GetReward(ctx, purchase.RewardID)
+		reward, err := s.repo.GetReward(ctx, purchase.RewardID, user.ChoreGroupID)
 		if err != nil {
 			return err
 		}
@@ -527,18 +540,18 @@ func (s *Service) CreateApproval(ctx context.Context, user model.User, purchaseI
 	}
 
 	purchase.Approvals, _ = json.Marshal(approvals)
-	return s.repo.UpdateRewardPurchase(ctx, &purchase)
+	return s.repo.UpdateRewardPurchase(ctx, &purchase, user.ChoreGroupID)
 }
 
 func (s *Service) UpdatePurchaseStatus(ctx context.Context, adminUser model.User, purchaseID uuid.UUID, req model.UpdatePurchaseStatusRequest) error {
 	if adminUser.Role != "admin" {
 		return ErrForbidden
 	}
-	purchase, err := s.repo.GetRewardPurchase(ctx, purchaseID)
+	purchase, err := s.repo.GetRewardPurchase(ctx, purchaseID, adminUser.ChoreGroupID)
 	if err != nil {
 		return err
 	}
-	reward, err := s.repo.GetReward(ctx, purchase.RewardID)
+	reward, err := s.repo.GetReward(ctx, purchase.RewardID, adminUser.ChoreGroupID)
 	if err != nil {
 		return err
 	}
@@ -549,15 +562,15 @@ func (s *Service) UpdatePurchaseStatus(ctx context.Context, adminUser model.User
 		return errors.New("purchase is not in approved state")
 	}
 	purchase.Status = req.Status
-	return s.repo.UpdateRewardPurchase(ctx, &purchase)
+	return s.repo.UpdateRewardPurchase(ctx, &purchase, adminUser.ChoreGroupID)
 }
 
 func (s *Service) CancelPurchase(ctx context.Context, user model.User, purchaseID uuid.UUID) error {
-	purchase, err := s.repo.GetRewardPurchase(ctx, purchaseID)
+	purchase, err := s.repo.GetRewardPurchase(ctx, purchaseID, user.ChoreGroupID)
 	if err != nil {
 		return err
 	}
-	reward, err := s.repo.GetReward(ctx, purchase.RewardID)
+	reward, err := s.repo.GetReward(ctx, purchase.RewardID, user.ChoreGroupID)
 	if err != nil {
 		return err
 	}
@@ -584,7 +597,37 @@ func (s *Service) CancelPurchase(ctx context.Context, user model.User, purchaseI
 		}
 	}
 
-	return s.repo.DeleteRewardPurchase(ctx, purchaseID)
+	return s.repo.DeleteRewardPurchase(ctx, purchaseID, user.ChoreGroupID)
+}
+
+// LookupChoreGroup searches for a household by name and returns members.
+func (s *Service) LookupChoreGroup(ctx context.Context, name string) (model.ChoreGroup, []model.User, error) {
+	group, err := s.repo.GetChoreGroupByName(ctx, name)
+	if err != nil {
+		return model.ChoreGroup{}, nil, err
+	}
+	members, err := s.repo.GetUsersByChoreGroupID(ctx, group.ID)
+	if err != nil {
+		return model.ChoreGroup{}, nil, err
+	}
+	return group, members, nil
+}
+
+// LoginWithPIN authenticates a user using their ID and 4-digit PIN.
+func (s *Service) LoginWithPIN(ctx context.Context, userID uuid.UUID, pin string) (model.LoginResponse, error) {
+	user, err := s.repo.GetUserByID(ctx, userID)
+	if err != nil {
+		return model.LoginResponse{}, ErrInvalidCredentials
+	}
+	if !checkPasswordHash(pin, user.PasswordHash) {
+		return model.LoginResponse{}, ErrInvalidCredentials
+	}
+	return model.LoginResponse{
+		UserID:       user.ID,
+		Username:     user.Username,
+		ChoreGroupID: user.ChoreGroupID,
+		Role:         user.Role,
+	}, nil
 }
 
 func (s *Service) ResolveEmoji(ctx context.Context, title string) (string, bool) {

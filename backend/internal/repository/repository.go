@@ -119,9 +119,9 @@ func (r *Repository) GetUsersByChoreGroupID(ctx context.Context, choregroupID uu
 	return users, nil
 }
 
-// DeleteUser deletes a user by their ID.
-func (r *Repository) DeleteUser(ctx context.Context, userID uuid.UUID) error {
-	_, err := r.db.Exec(ctx, "DELETE FROM users WHERE id = $1", userID)
+// DeleteUser deletes a user by their ID and choregroupID.
+func (r *Repository) DeleteUser(ctx context.Context, userID, choregroupID uuid.UUID) error {
+	_, err := r.db.Exec(ctx, "DELETE FROM users WHERE id = $1 AND choregroup_id = $2", userID, choregroupID)
 	return err
 }
 
@@ -140,27 +140,27 @@ func (r *Repository) CreateTask(ctx context.Context, task *model.Task) error {
 	return err
 }
 
-// UpdateTask updates an existing task.
-func (r *Repository) UpdateTask(ctx context.Context, taskID uuid.UUID, req model.UpdateTaskRequest) error {
-	_, err := r.db.Exec(ctx, "UPDATE tasks SET title = $1, type = $2, points_reward = $3, is_mandatory = $4, assigned_to_user_id = $5, expires_at = $6 WHERE id = $7",
-		req.Title, req.Type, req.PointsReward, req.IsMandatory, req.AssignedToUserID, req.ExpiresAt, taskID)
+// UpdateTask updates an existing task, verified by choregroupID.
+func (r *Repository) UpdateTask(ctx context.Context, taskID, choregroupID uuid.UUID, req model.UpdateTaskRequest) error {
+	_, err := r.db.Exec(ctx, "UPDATE tasks SET title = $1, type = $2, points_reward = $3, is_mandatory = $4, assigned_to_user_id = $5, expires_at = $6 WHERE id = $7 AND choregroup_id = $8",
+		req.Title, req.Type, req.PointsReward, req.IsMandatory, req.AssignedToUserID, req.ExpiresAt, taskID, choregroupID)
 	return err
 }
 
-// DeleteTask deletes a task by its ID.
-func (r *Repository) DeleteTask(ctx context.Context, taskID uuid.UUID) error {
-	// Delete any submissions referencing this task first (self-healing for schemas missing ON DELETE CASCADE)
-	_, err := r.db.Exec(ctx, "DELETE FROM task_submissions WHERE task_id = $1", taskID)
+// DeleteTask deletes a task, verified by choregroupID.
+func (r *Repository) DeleteTask(ctx context.Context, taskID, choregroupID uuid.UUID) error {
+	// Delete any submissions referencing this task first
+	_, err := r.db.Exec(ctx, "DELETE FROM task_submissions WHERE task_id = $1 AND task_id IN (SELECT id FROM tasks WHERE choregroup_id = $2)", taskID, choregroupID)
 	if err != nil {
 		return err
 	}
-	_, err = r.db.Exec(ctx, "DELETE FROM tasks WHERE id = $1", taskID)
+	_, err = r.db.Exec(ctx, "DELETE FROM tasks WHERE id = $1 AND choregroup_id = $2", taskID, choregroupID)
 	return err
 }
 
-// UpdateTaskStatus updates the status of a task.
-func (r *Repository) UpdateTaskStatus(ctx context.Context, taskID uuid.UUID, status string) error {
-	_, err := r.db.Exec(ctx, "UPDATE tasks SET status = $1 WHERE id = $2", status, taskID)
+// UpdateTaskStatus updates the status of a task, verified by choregroupID.
+func (r *Repository) UpdateTaskStatus(ctx context.Context, taskID, choregroupID uuid.UUID, status string) error {
+	_, err := r.db.Exec(ctx, "UPDATE tasks SET status = $1 WHERE id = $2 AND choregroup_id = $3", status, taskID, choregroupID)
 	return err
 }
 
@@ -230,10 +230,10 @@ func (r *Repository) GetUsersSortedByPoints(ctx context.Context, choregroupID uu
 	return users, nil
 }
 
-// GetTask retrieves a task by ID.
-func (r *Repository) GetTask(ctx context.Context, id uuid.UUID) (*model.Task, error) {
+// GetTask retrieves a task by ID and choregroupID.
+func (r *Repository) GetTask(ctx context.Context, id, choregroupID uuid.UUID) (*model.Task, error) {
 	var task model.Task
-	err := r.db.QueryRow(ctx, "SELECT id, choregroup_id, title, type, points_reward, is_mandatory, assigned_to_user_id, status, expires_at FROM tasks WHERE id = $1", id).Scan(
+	err := r.db.QueryRow(ctx, "SELECT id, choregroup_id, title, type, points_reward, is_mandatory, assigned_to_user_id, status, expires_at FROM tasks WHERE id = $1 AND choregroup_id = $2", id, choregroupID).Scan(
 		&task.ID, &task.ChoreGroupID, &task.Title, &task.Type, &task.PointsReward, &task.IsMandatory, &task.AssignedToUserID, &task.Status, &task.ExpiresAt)
 	return &task, err
 }
@@ -255,24 +255,29 @@ func (r *Repository) CreateTaskSubmission(ctx context.Context, submission *model
 	return err
 }
 
-// GetTaskSubmission retrieves a task submission by ID.
-func (r *Repository) GetTaskSubmission(ctx context.Context, id uuid.UUID) (*model.TaskSubmission, error) {
+// GetTaskSubmission retrieves a task submission by ID and choregroupID.
+func (r *Repository) GetTaskSubmission(ctx context.Context, id, choregroupID uuid.UUID) (*model.TaskSubmission, error) {
 	var submission model.TaskSubmission
-	err := r.db.QueryRow(ctx, "SELECT id, task_id, submitted_by, status, created_at FROM task_submissions WHERE id = $1", id).Scan(
+	err := r.db.QueryRow(ctx, `
+		SELECT s.id, s.task_id, s.submitted_by, s.status, s.created_at 
+		FROM task_submissions s
+		JOIN tasks t ON s.task_id = t.id
+		WHERE s.id = $1 AND t.choregroup_id = $2`, id, choregroupID).Scan(
 		&submission.ID, &submission.TaskID, &submission.SubmittedBy, &submission.Status, &submission.CreatedAt)
 	return &submission, err
 }
 
-// GetLatestPendingSubmissionForTask retrieves the most recent pending submission for a given task.
-func (r *Repository) GetLatestPendingSubmissionForTask(ctx context.Context, taskID uuid.UUID) (*model.TaskSubmission, error) {
+// GetLatestPendingSubmissionForTask retrieves the most recent pending submission for a given task and choregroupID.
+func (r *Repository) GetLatestPendingSubmissionForTask(ctx context.Context, taskID, choregroupID uuid.UUID) (*model.TaskSubmission, error) {
 	var submission model.TaskSubmission
 	err := r.db.QueryRow(ctx, `
-		SELECT id, task_id, submitted_by, status, created_at
-		FROM task_submissions
-		WHERE task_id = $1 AND status = 'pending_approval'
-		ORDER BY created_at DESC
+		SELECT s.id, s.task_id, s.submitted_by, s.status, s.created_at
+		FROM task_submissions s
+		JOIN tasks t ON s.task_id = t.id
+		WHERE s.task_id = $1 AND t.choregroup_id = $2 AND s.status = 'pending_approval'
+		ORDER BY s.created_at DESC
 		LIMIT 1
-	`, taskID).Scan(&submission.ID, &submission.TaskID, &submission.SubmittedBy, &submission.Status, &submission.CreatedAt)
+	`, taskID, choregroupID).Scan(&submission.ID, &submission.TaskID, &submission.SubmittedBy, &submission.Status, &submission.CreatedAt)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, ErrNotFound
@@ -282,9 +287,12 @@ func (r *Repository) GetLatestPendingSubmissionForTask(ctx context.Context, task
 	return &submission, nil
 }
 
-// UpdateTaskSubmissionStatus updates the status of a task submission.
-func (r *Repository) UpdateTaskSubmissionStatus(ctx context.Context, id uuid.UUID, status string) error {
-	_, err := r.db.Exec(ctx, "UPDATE task_submissions SET status = $1 WHERE id = $2", status, id)
+// UpdateTaskSubmissionStatus updates the status of a task submission, verified by choregroupID.
+func (r *Repository) UpdateTaskSubmissionStatus(ctx context.Context, id, choregroupID uuid.UUID, status string) error {
+	_, err := r.db.Exec(ctx, `
+		UPDATE task_submissions 
+		SET status = $1 
+		WHERE id = $2 AND task_id IN (SELECT id FROM tasks WHERE choregroup_id = $3)`, status, id, choregroupID)
 	return err
 }
 
@@ -321,9 +329,9 @@ func (r *Repository) CreateReward(ctx context.Context, reward *model.Reward) err
 	return err
 }
 
-func (r *Repository) GetReward(ctx context.Context, rewardID uuid.UUID) (model.Reward, error) {
+func (r *Repository) GetReward(ctx context.Context, rewardID, choregroupID uuid.UUID) (model.Reward, error) {
 	var reward model.Reward
-	err := r.db.QueryRow(ctx, "SELECT id, choregroup_id, name, description, cost, type, assigned_to_user_id FROM rewards WHERE id = $1", rewardID).Scan(
+	err := r.db.QueryRow(ctx, "SELECT id, choregroup_id, name, description, cost, type, assigned_to_user_id FROM rewards WHERE id = $1 AND choregroup_id = $2", rewardID, choregroupID).Scan(
 		&reward.ID, &reward.ChoreGroupID, &reward.Name, &reward.Description, &reward.Cost, &reward.Type, &reward.AssignedToUserID)
 	return reward, err
 }
@@ -345,14 +353,14 @@ func (r *Repository) ListRewards(ctx context.Context, choregroupID uuid.UUID) ([
 	return rewards, nil
 }
 
-func (r *Repository) UpdateReward(ctx context.Context, rewardID uuid.UUID, req model.CreateRewardRequest) error {
-	_, err := r.db.Exec(ctx, "UPDATE rewards SET name = $1, description = $2, cost = $3, type = $4, assigned_to_user_id = $5 WHERE id = $6",
-		req.Name, req.Description, req.Cost, req.Type, req.AssignedToUserID, rewardID)
+func (r *Repository) UpdateReward(ctx context.Context, rewardID, choregroupID uuid.UUID, req model.CreateRewardRequest) error {
+	_, err := r.db.Exec(ctx, "UPDATE rewards SET name = $1, description = $2, cost = $3, type = $4, assigned_to_user_id = $5 WHERE id = $6 AND choregroup_id = $7",
+		req.Name, req.Description, req.Cost, req.Type, req.AssignedToUserID, rewardID, choregroupID)
 	return err
 }
 
-func (r *Repository) DeleteReward(ctx context.Context, rewardID uuid.UUID) error {
-	_, err := r.db.Exec(ctx, "DELETE FROM rewards WHERE id = $1", rewardID)
+func (r *Repository) DeleteReward(ctx context.Context, rewardID, choregroupID uuid.UUID) error {
+	_, err := r.db.Exec(ctx, "DELETE FROM rewards WHERE id = $1 AND choregroup_id = $2", rewardID, choregroupID)
 	return err
 }
 
@@ -366,9 +374,13 @@ func (r *Repository) CreateRewardPurchase(ctx context.Context, purchase *model.R
 	return err
 }
 
-func (r *Repository) GetRewardPurchase(ctx context.Context, purchaseID uuid.UUID) (model.RewardPurchase, error) {
+func (r *Repository) GetRewardPurchase(ctx context.Context, purchaseID, choregroupID uuid.UUID) (model.RewardPurchase, error) {
 	var purchase model.RewardPurchase
-	err := r.db.QueryRow(ctx, "SELECT id, reward_id, purchased_by_user_id, status, approvals FROM reward_purchases WHERE id = $1", purchaseID).Scan(
+	err := r.db.QueryRow(ctx, `
+		SELECT p.id, p.reward_id, p.purchased_by_user_id, p.status, p.approvals 
+		FROM reward_purchases p
+		JOIN rewards r ON p.reward_id = r.id
+		WHERE p.id = $1 AND r.choregroup_id = $2`, purchaseID, choregroupID).Scan(
 		&purchase.ID, &purchase.RewardID, &purchase.PurchasedByUserID, &purchase.Status, &purchase.Approvals)
 	return purchase, err
 }
@@ -406,13 +418,16 @@ func (r *Repository) ListRewardPurchases(ctx context.Context, choregroupID uuid.
 	return purchases, nil
 }
 
-func (r *Repository) UpdateRewardPurchase(ctx context.Context, purchase *model.RewardPurchase) error {
+func (r *Repository) UpdateRewardPurchase(ctx context.Context, purchase *model.RewardPurchase, choregroupID uuid.UUID) error {
 	approvalsJSON, err := json.Marshal(purchase.Approvals)
 	if err != nil {
 		return err
 	}
-	_, err = r.db.Exec(ctx, "UPDATE reward_purchases SET status = $1, approvals = $2 WHERE id = $3",
-		purchase.Status, approvalsJSON, purchase.ID)
+	_, err = r.db.Exec(ctx, `
+		UPDATE reward_purchases 
+		SET status = $1, approvals = $2 
+		WHERE id = $3 AND reward_id IN (SELECT id FROM rewards WHERE choregroup_id = $4)`,
+		purchase.Status, approvalsJSON, purchase.ID, choregroupID)
 	return err
 }
 
@@ -421,8 +436,10 @@ func (r *Repository) RefundCooperativePoints(ctx context.Context, choregroupID u
 	return err
 }
 
-func (r *Repository) DeleteRewardPurchase(ctx context.Context, purchaseID uuid.UUID) error {
-	_, err := r.db.Exec(ctx, "DELETE FROM reward_purchases WHERE id = $1", purchaseID)
+func (r *Repository) DeleteRewardPurchase(ctx context.Context, purchaseID, choregroupID uuid.UUID) error {
+	_, err := r.db.Exec(ctx, `
+		DELETE FROM reward_purchases 
+		WHERE id = $1 AND reward_id IN (SELECT id FROM rewards WHERE choregroup_id = $2)`, purchaseID, choregroupID)
 	return err
 }
 
@@ -445,4 +462,20 @@ func (r *Repository) UpdateTaskTitle(ctx context.Context, taskID uuid.UUID, titl
 func (r *Repository) UpdateRewardName(ctx context.Context, rewardID uuid.UUID, name string) error {
 	_, err := r.db.Exec(ctx, "UPDATE rewards SET name = $1 WHERE id = $2", name, rewardID)
 	return err
+}
+
+// GetChoreGroupByName retrieves a choregroup by its name.
+func (r *Repository) GetChoreGroupByName(ctx context.Context, name string) (model.ChoreGroup, error) {
+	var group model.ChoreGroup
+	err := r.db.QueryRow(ctx, "SELECT id, name, cooperative_points FROM choregroups WHERE name = $1", name).Scan(
+		&group.ID, &group.Name, &group.CooperativePoints)
+	return group, err
+}
+
+// GetUserByChoreGroupIDAndUsername retrieves a user by their choregroupID and username.
+func (r *Repository) GetUserByChoreGroupIDAndUsername(ctx context.Context, choregroupID uuid.UUID, username string) (model.User, error) {
+	var user model.User
+	err := r.db.QueryRow(ctx, "SELECT id, choregroup_id, username, password_hash, role, points FROM users WHERE choregroup_id = $1 AND username = $2", choregroupID, username).Scan(
+		&user.ID, &user.ChoreGroupID, &user.Username, &user.PasswordHash, &user.Role, &user.Points)
+	return user, err
 }

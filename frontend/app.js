@@ -166,6 +166,16 @@ function setPointsSelectValue(val) {
    APP INITIALIZATION & ROUTING
    ========================================== */
 document.addEventListener("DOMContentLoaded", async () => {
+  // Check for delegated login token in query params
+  const urlParams = new URLSearchParams(window.location.search);
+  const delegatedToken = urlParams.get("login_token");
+  if (delegatedToken) {
+    // Clear query parameter from URL bar to keep it clean
+    const nextURL = window.location.origin + window.location.pathname;
+    window.history.replaceState({}, document.title, nextURL);
+    await handleDelegatedLogin(delegatedToken);
+  }
+
   // Check if session exists in localStorage
   const savedSession = localStorage.getItem("chorecraft_session");
   if (savedSession) {
@@ -178,9 +188,8 @@ document.addEventListener("DOMContentLoaded", async () => {
       const choregroupID = currentSession.choregroup_id;
       const apiBase = getApiBase();
       const headers = { "Content-Type": "application/json" };
-      if (currentSession.user_id) headers["X-User-ID"] = currentSession.user_id;
       
-      const resp = await fetch(`${apiBase}/choregroups/${choregroupID}/statistics`, { headers });
+      const resp = await fetch(`${apiBase}/choregroups/${choregroupID}/statistics`, { headers, credentials: "include" });
       if (resp.status === 401 || resp.status === 403) {
         // Stale session — user no longer exists in DB
         currentSession = null;
@@ -244,16 +253,18 @@ function openAuthModal(initialTab = "login") {
 function toggleAuthForm(state) {
   const signupForm = document.getElementById("parent-signup-form");
   const loginForm = document.getElementById("parent-login-form");
+  const lookupForm = document.getElementById("kid-pin-lookup-form");
+  const avatarForm = document.getElementById("kid-pin-avatar-form");
+  const padForm = document.getElementById("kid-pin-pad-form");
   
-  if (signupForm && loginForm) {
-    if (state === "signup") {
-      signupForm.style.display = "block";
-      loginForm.style.display = "none";
-    } else {
-      signupForm.style.display = "none";
-      loginForm.style.display = "block";
-    }
-  }
+  const forms = [signupForm, loginForm, lookupForm, avatarForm, padForm];
+  forms.forEach(f => { if (f) f.style.display = "none"; });
+  
+  if (state === "signup" && signupForm) signupForm.style.display = "block";
+  if (state === "login" && loginForm) loginForm.style.display = "block";
+  if (state === "pin-lookup" && lookupForm) lookupForm.style.display = "block";
+  if (state === "pin-avatar" && avatarForm) avatarForm.style.display = "block";
+  if (state === "pin-pad" && padForm) padForm.style.display = "block";
 }
 
 function closeModal(modalId) {
@@ -272,9 +283,9 @@ function connectSSE() {
   if (!currentSession || !currentSession.choregroup_id) return;
 
   const apiBase = getApiBase();
-  const url = `${apiBase}/choregroups/${currentSession.choregroup_id}/events?user_id=${currentSession.user_id}`;
+  const url = `${apiBase}/choregroups/${currentSession.choregroup_id}/events`;
   
-  globalEventSource = new EventSource(url);
+  globalEventSource = new EventSource(url, { withCredentials: true });
   
   globalEventSource.onmessage = (event) => {
     if (event.data === "refresh") {
@@ -322,14 +333,10 @@ async function apiCall(endpoint, method = "GET", body = null) {
     "Content-Type": "application/json"
   };
   
-  // Inject required api key header
-  if (currentSession && currentSession.user_id) {
-    headers["X-User-ID"] = currentSession.user_id;
-  }
-  
   const config = {
     method: method,
-    headers: headers
+    headers: headers,
+    credentials: "include"
   };
   
   if (body) {
@@ -397,25 +404,27 @@ async function handleParentSignUp(e) {
 async function handleLogin(e) {
   e.preventDefault();
   
+  const familyName = document.getElementById("p-login-group-name").value.trim();
   const username = document.getElementById("p-login-user").value.trim();
   const password = document.getElementById("p-login-pass").value;
   
   try {
     // POST /login (LoginRequest)
     const res = await apiCall("/login", "POST", {
+      choregroup_name: familyName,
       username: username,
       password: password
     });
     
     setSession({
       id: res.user_id,
-      username: username,
+      username: res.username || username,
       role: res.role,
       choregroup_id: res.choregroup_id,
       choregroup_name: res.role === "admin" ? "My Household" : "Kid Space"
     });
     closeModal("auth-modal");
-    showToast(`Welcome back ${username}!`);
+    showToast(`Welcome back ${res.username || username}!`);
   } catch (err) {
     alert("Invalid credentials on server!");
   }
@@ -676,11 +685,17 @@ async function renderParentDashboard() {
       ? `<span class="member-avatar admin-avatar">👤<span class="avatar-crown">👑</span></span>`
       : `<span class="member-avatar">👤</span>`;
       
+    let actionBtnHtml = "";
+    if (m.role === "user") {
+      actionBtnHtml = `<button class="btn btn-primary btn-xs" onclick="generateKidAccessLink('${m.id}')" style="margin-left: auto; font-size: 0.75rem; padding: 0.25rem 0.5rem;">🔗 Link</button>`;
+    }
+      
     item.innerHTML = `
       <div class="member-info">
         ${avatarHtml}
         <span class="member-name">${m.username}${isMe ? ' (Me)' : ''}</span>
       </div>
+      ${actionBtnHtml}
     `;
     membersList.appendChild(item);
   });
@@ -881,10 +896,13 @@ async function handleAddUserSubmit(e) {
   
   const name = document.getElementById("new-member-name").value.trim();
   const password = document.getElementById("new-member-pass").value;
-  const groupName = document.getElementById("new-member-groupname").value.trim();
   const role = document.getElementById("new-member-role").value;
+  const groupName = currentSession?.choregroup_name || "";
   
-  if (!name || !groupName) return;
+  if (!name || !groupName) {
+    alert("Could not determine your household. Please log in again.");
+    return;
+  }
   
   try {
     // POST /users (AddUserRequest)
@@ -895,14 +913,8 @@ async function handleAddUserSubmit(e) {
       username: name
     });
     showToast(`User ${name} added successfully!`);
-    
-    // Save groupName into session if it was "My Household" so it is remembered
-    if (currentSession && (currentSession.choregroup_name === "My Household" || currentSession.choregroup_name !== groupName)) {
-      currentSession.choregroup_name = groupName;
-      localStorage.setItem("chorecraft_session", JSON.stringify(currentSession));
-    }
   } catch (err) {
-    alert("Failed to add member to server: " + err.message);
+    alert("Failed to add member: " + err.message);
   }
   
   closeModal("add-user-modal");
@@ -1979,6 +1991,203 @@ async function handleExtendTask(taskId) {
   }
 }
 
+/* ==========================================================
+   KID PIN & DELEGATED AUTHENTICATION LOGIC
+   ========================================================== */
+
+let pinLoginChoreGroupID = null;
+let pinLoginUserID = null;
+let pinLoginUsername = null;
+let pinLoginAccumulated = "";
+
+async function handleFindHousehold(e) {
+  e.preventDefault();
+  const familyName = document.getElementById("pin-lookup-family-name").value.trim();
+  if (!familyName) return;
+  
+  try {
+    const data = await apiCall(`/choregroups/lookup?name=${encodeURIComponent(familyName)}`);
+    pinLoginChoreGroupID = data.id;
+    
+    const avatarList = document.getElementById("kid-avatar-list");
+    avatarList.innerHTML = "";
+    
+    if (!data.members || data.members.length === 0) {
+      avatarList.innerHTML = `<p style="grid-column: span 3; text-align: center; color: var(--text-muted);">No kid profiles found. Ask a parent to add you!</p>`;
+    } else {
+      const emojis = ["🐱", "🐶", "🦁", "🐰", "🐼", "🦊", "🐨", "🐸", "🐵"];
+      data.members.forEach((kid, idx) => {
+        const emoji = emojis[idx % emojis.length];
+        const div = document.createElement("div");
+        div.className = "avatar-item";
+        div.style = "display: flex; flex-direction: column; align-items: center; cursor: pointer; padding: 0.5rem; border-radius: 8px; border: 2px solid transparent; transition: all 0.2s;";
+        div.innerHTML = `
+          <div style="font-size: 3rem; background: var(--bg-card); width: 80px; height: 80px; display: flex; align-items: center; justify-content: center; border-radius: 50%; border: 3px solid var(--primary); margin-bottom: 0.5rem; transition: transform 0.2s;">${emoji}</div>
+          <span style="font-weight: 800; color: var(--text-main); font-size: 1.05rem;">${kid.username}</span>
+        `;
+        div.addEventListener("mouseenter", () => {
+          div.querySelector("div").style.transform = "scale(1.1)";
+        });
+        div.addEventListener("mouseleave", () => {
+          div.querySelector("div").style.transform = "scale(1)";
+        });
+        div.addEventListener("click", () => {
+          selectKidForPinEntry(kid.id, kid.username);
+        });
+        avatarList.appendChild(div);
+      });
+    }
+    
+    toggleAuthForm("pin-avatar");
+  } catch (err) {
+    alert("Family not found! Check spelling and try again.");
+  }
+}
+
+function selectKidForPinEntry(userID, username) {
+  pinLoginUserID = userID;
+  pinLoginUsername = username;
+  pinLoginAccumulated = "";
+  document.getElementById("pin-input-field").value = "";
+  document.getElementById("pin-entry-title").innerText = `PIN for ${username}`;
+  toggleAuthForm("pin-pad");
+}
+
+function pressPinNumber(num) {
+  if (pinLoginAccumulated.length < 4) {
+    pinLoginAccumulated += num;
+    document.getElementById("pin-input-field").value = "•".repeat(pinLoginAccumulated.length);
+  }
+}
+
+function clearPinNumber() {
+  pinLoginAccumulated = "";
+  document.getElementById("pin-input-field").value = "";
+}
+
+function goBackToAvatars() {
+  toggleAuthForm("pin-avatar");
+}
+
+async function submitPinLogin() {
+  if (pinLoginAccumulated.length < 4) {
+    alert("Please enter a 4-digit PIN!");
+    return;
+  }
+  
+  try {
+    const res = await apiCall("/login/pin", "POST", {
+      user_id: pinLoginUserID,
+      pin: pinLoginAccumulated
+    });
+    
+    setSession({
+      id: res.user_id,
+      username: pinLoginUsername,
+      role: res.role,
+      choregroup_id: res.choregroup_id,
+      choregroup_name: "Kid Space"
+    });
+    closeModal("auth-modal");
+    showToast(`Welcome ${pinLoginUsername}!`);
+  } catch (err) {
+    alert("Incorrect PIN! Try again.");
+    clearPinNumber();
+  }
+}
+
+async function generateKidAccessLink(userID) {
+  try {
+    const groupId = currentSession.choregroup_id;
+    const res = await apiCall(`/choregroups/${groupId}/members/${userID}/login-link`, "POST");
+    const link = `${window.location.origin}${window.location.pathname}?login_token=${res.token}`;
+
+    document.getElementById("generated-login-link-input").value = link;
+    const modal = document.getElementById("login-link-modal");
+    if (modal) modal.classList.add("active");
+  } catch (err) {
+    alert("Failed to generate access link: " + err.message);
+  }
+}
+
+function copyToClipboardFallback(text) {
+  const ta = document.createElement("textarea");
+  ta.value = text;
+  ta.style.position = "fixed";
+  ta.style.left = "-9999px";
+  document.body.appendChild(ta);
+  ta.select();
+  ta.setSelectionRange(0, 99999);
+  document.execCommand("copy");
+  document.body.removeChild(ta);
+}
+
+function copyDelegatedLink() {
+  const input = document.getElementById("generated-login-link-input");
+  const link = input.value;
+  input.select();
+  input.setSelectionRange(0, 99999);
+
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(link).then(() => {
+      showToast("📋 Link copied to clipboard!");
+    }).catch(() => {
+      copyToClipboardFallback(link);
+      showToast("📋 Link copied to clipboard!");
+    });
+  } else {
+    copyToClipboardFallback(link);
+    showToast("📋 Link copied to clipboard!");
+  }
+  closeModal("login-link-modal");
+}
+
+function getShareLink() {
+  return document.getElementById("generated-login-link-input").value || "";
+}
+
+function shareViaWhatsApp() {
+  const link = getShareLink();
+  if (!link) return;
+  const text = encodeURIComponent("Tap this link to log in to ChoreCraft! \ud83c\udfe0\u2728\n" + link);
+  window.open(`https://wa.me/?text=${text}`, "_blank");
+  closeModal("login-link-modal");
+}
+
+function shareViaSMS() {
+  const link = getShareLink();
+  if (!link) return;
+  const text = encodeURIComponent("Log in to ChoreCraft: " + link);
+  window.open(`sms:?body=${text}`, "_self");
+  closeModal("login-link-modal");
+}
+
+function shareViaEmail() {
+  const link = getShareLink();
+  if (!link) return;
+  const subject = encodeURIComponent("ChoreCraft - Kid Access Link");
+  const body = encodeURIComponent("Tap this link to log in to ChoreCraft! \ud83c\udfe0\u2728\n\n" + link + "\n\nThis link is valid for 5 minutes.");
+  window.open(`mailto:?subject=${subject}&body=${body}`, "_self");
+  closeModal("login-link-modal");
+}
+
+async function handleDelegatedLogin(token) {
+  try {
+    const res = await apiCall("/login/delegated", "POST", { token: token });
+    setSession({
+      id: res.user_id,
+      username: res.username || "Kid Space",
+      role: res.role,
+      choregroup_id: res.choregroup_id,
+      choregroup_name: "Kid Space"
+    });
+    showToast("🔑 Logged in automatically!");
+  } catch (err) {
+    showToast("❌ Auto-login link expired or invalid!");
+  }
+}
+
+
 // Bind handlers to the window object to support ES modules type="module" in index.html
 window.handleLogoClick = handleLogoClick;
 window.openAuthModal = openAuthModal;
@@ -2012,3 +2221,14 @@ window.handleCancelPurchase = handleCancelPurchase;
 window.submitChoreForApproval = submitChoreForApproval;
 window.simulateHeroChoreCompletion = simulateHeroChoreCompletion;
 window.switchParentRewardSubTab = switchParentRewardSubTab;
+window.handleFindHousehold = handleFindHousehold;
+window.pressPinNumber = pressPinNumber;
+window.clearPinNumber = clearPinNumber;
+window.goBackToAvatars = goBackToAvatars;
+window.submitPinLogin = submitPinLogin;
+window.generateKidAccessLink = generateKidAccessLink;
+window.copyDelegatedLink = copyDelegatedLink;
+window.shareViaWhatsApp = shareViaWhatsApp;
+window.shareViaSMS = shareViaSMS;
+window.shareViaEmail = shareViaEmail;
+

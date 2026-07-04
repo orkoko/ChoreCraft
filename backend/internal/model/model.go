@@ -88,13 +88,26 @@ type AddUserRequest struct {
 
 // LoginRequest defines the body for user authentication.
 type LoginRequest struct {
-	Username string `json:"username"`
-	Password string `json:"password"`
+	ChoreGroupName string `json:"choregroup_name,omitempty"`
+	Username       string `json:"username"`
+	Password       string `json:"password"`
+}
+
+// PINLoginRequest defines the body for PIN-based user authentication.
+type PINLoginRequest struct {
+	UserID uuid.UUID `json:"user_id"`
+	PIN    string    `json:"pin"`
+}
+
+// DelegatedLoginRequest defines the body for delegated link login.
+type DelegatedLoginRequest struct {
+	Token string `json:"token"`
 }
 
 // LoginResponse defines the data returned upon successful login.
 type LoginResponse struct {
 	UserID       uuid.UUID `json:"user_id"`
+	Username     string    `json:"username"`
 	ChoreGroupID uuid.UUID `json:"choregroup_id"`
 	Role         string    `json:"role"`
 }
