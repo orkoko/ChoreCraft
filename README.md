@@ -82,11 +82,9 @@ docker run --name chorecraft-db \
 
 ### 2. Configure & Start the Backend
 
+From the project root, copy the example configuration:
 ```bash
-cd backend
-
-# Copy the example configuration
-cp example.env .env
+cp backend/example.env backend/.env
 ```
 
 Open `backend/.env` and add your Gemini API key:
@@ -94,9 +92,9 @@ Open `backend/.env` and add your Gemini API key:
 GEMINI_API_KEY="your_key_here"
 ```
 
-Then run the server:
+Then run the server from the project root:
 ```bash
-go run cmd/server/main.go
+go run backend/cmd/server/main.go
 ```
 
 The API will be available at `http://localhost:8080`. Auto-generated Swagger docs are at `http://localhost:8080/swagger/index.html`.
@@ -107,6 +105,7 @@ The API will be available at `http://localhost:8080`. Auto-generated Swagger doc
 
 ### 3. Start the Frontend
 
+In a new terminal, from the project root:
 ```bash
 cd frontend
 npm install
@@ -114,6 +113,51 @@ npm run dev
 ```
 
 Open `http://localhost:5173` in your browser.
+
+---
+
+## 🌐 Remote Development & Tunnelling (ngrok)
+
+To test the application remotely on mobile devices or share access:
+1. Ensure the **Go Backend** is running on port `8080`.
+2. Ensure the **Vite Frontend** is running on port `5173`.
+3. In `frontend/vite.config.js`, make sure the proxy is configured to route `/api` to `http://localhost:8080` and `allowedHosts` is set to accept the tunnel domain:
+   ```javascript
+   allowedHosts: ['.ngrok-free.dev', '.ngrok-free.app']
+   ```
+4. Start the ngrok tunnel on the Vite port:
+   ```bash
+   ngrok http 5173
+   ```
+This maps both static assets and API requests (via Vite's built-in proxy) over a single public HTTPS URL.
+
+---
+
+## 🚢 Deployment
+
+### 1. Build and Run Locally with Docker
+You can run the backend server inside a Docker container:
+```bash
+# Navigate to backend directory
+cd backend
+
+# Build the Docker image
+docker build -t chorecraft-backend .
+
+# Run the container (pass your .env configurations)
+docker run -p 8080:8080 --env-file .env chorecraft-backend
+```
+
+### 2. Deploy to Google Cloud Run (CI/CD)
+The backend project includes a `cloudbuild.yaml` pipeline definition to automate deployment using **Google Cloud Build**:
+```bash
+cd backend
+gcloud builds submit --config cloudbuild.yaml .
+```
+This triggers a Google Cloud Build runner to:
+1. Compile the Go binary and package it into a container using the `Dockerfile`.
+2. Push the built container image to your Google Container Registry (`gcr.io`).
+3. Deploy/update the containerized service automatically to **Google Cloud Run** in `us-central1` with unauthenticated access enabled.
 
 ---
 

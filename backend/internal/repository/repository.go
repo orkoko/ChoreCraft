@@ -445,7 +445,11 @@ func (r *Repository) DeleteRewardPurchase(ctx context.Context, purchaseID, chore
 
 func (r *Repository) GetEmojiForTitle(ctx context.Context, title string) (string, error) {
 	var emoji string
-	err := r.db.QueryRow(ctx, "SELECT emoji FROM icon_mappings WHERE $1 ILIKE '%' || keyword || '%' LIMIT 1", title).Scan(&emoji)
+	err := r.db.QueryRow(ctx, `
+		SELECT emoji FROM icon_mappings 
+		WHERE keyword = LOWER(TRIM($1)) 
+		   OR keyword = ANY(string_to_array(LOWER(TRIM($1)), ' ')) 
+		LIMIT 1`, title).Scan(&emoji)
 	return emoji, err
 }
 

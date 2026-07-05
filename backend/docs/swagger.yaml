@@ -16,27 +16,15 @@ definitions:
     properties:
       assigned_to_user_id:
         type: string
+      expires_at:
+        type: string
+      is_mandatory:
+        type: boolean
       points_reward:
         type: integer
       title:
         type: string
       type:
-        type: string
-    type: object
-  model.LoginRequest:
-    properties:
-      password:
-        type: string
-      username:
-        type: string
-    type: object
-  model.LoginResponse:
-    properties:
-      choregroup_id:
-        type: string
-      role:
-        type: string
-      user_id:
         type: string
     type: object
   model.SignUpRequest:
@@ -63,8 +51,12 @@ definitions:
         type: string
       choregroup_id:
         type: string
+      expires_at:
+        type: string
       id:
         type: string
+      is_mandatory:
+        type: boolean
       points_reward:
         type: integer
       status:
@@ -97,6 +89,10 @@ definitions:
     properties:
       assigned_to_user_id:
         type: string
+      expires_at:
+        type: string
+      is_mandatory:
+        type: boolean
       points_reward:
         type: integer
       title:
@@ -414,27 +410,6 @@ paths:
       summary: Submit a task for approval
       tags:
       - Tasks
-  /login:
-    post:
-      consumes:
-      - application/json
-      parameters:
-      - description: User Credentials
-        in: body
-        name: credentials
-        required: true
-        schema:
-          $ref: '#/definitions/model.LoginRequest'
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            $ref: '#/definitions/model.LoginResponse'
-      summary: Log in a user
-      tags:
-      - Auth
   /signup:
     post:
       consumes:

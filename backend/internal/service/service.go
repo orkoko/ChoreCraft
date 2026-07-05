@@ -522,7 +522,7 @@ func (s *Service) CreateApproval(ctx context.Context, user model.User, purchaseI
 		if err != nil {
 			return err
 		}
-		if err := s.repo.RefundCooperativePoints(ctx, reward.ChoreGroupID, reward.Cost); err != nil {
+		if err := s.repo.UpdatePoints(ctx, user.ChoreGroupID, purchase.PurchasedByUserID, reward.Cost, "cooperative"); err != nil {
 			return err
 		}
 	} else {
@@ -587,14 +587,8 @@ func (s *Service) CancelPurchase(ctx context.Context, user model.User, purchaseI
 	}
 
 	// Refund points
-	if reward.Type == "individual" {
-		if err := s.repo.UpdatePoints(ctx, user.ChoreGroupID, purchase.PurchasedByUserID, reward.Cost, "individual"); err != nil {
-			return err
-		}
-	} else {
-		if err := s.repo.RefundCooperativePoints(ctx, user.ChoreGroupID, reward.Cost); err != nil {
-			return err
-		}
+	if err := s.repo.UpdatePoints(ctx, user.ChoreGroupID, purchase.PurchasedByUserID, reward.Cost, reward.Type); err != nil {
+		return err
 	}
 
 	return s.repo.DeleteRewardPurchase(ctx, purchaseID, user.ChoreGroupID)
@@ -696,8 +690,16 @@ func (s *Service) ResolveEmojiAsync(ctx context.Context, title string) string {
 		return title
 	}
 
-	if result.Emoji != "" && result.Keyword != "" {
-		_ = s.repo.SaveIconMapping(ctx, strings.ToLower(result.Keyword), result.Emoji)
+	if result.Emoji != "" {
+		cleanedTitle := strings.ToLower(strings.TrimSpace(title))
+		if len(cleanedTitle) > 100 {
+			cleanedTitle = cleanedTitle[:100]
+		}
+		_ = s.repo.SaveIconMapping(ctx, cleanedTitle, result.Emoji)
+
+		if result.Keyword != "" {
+			_ = s.repo.SaveIconMapping(ctx, strings.ToLower(result.Keyword), result.Emoji)
+		}
 		return result.Emoji + " " + title
 	}
 

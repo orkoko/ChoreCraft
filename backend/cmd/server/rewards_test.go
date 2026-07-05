@@ -103,6 +103,85 @@ func TestRewardLifecycle(t *testing.T) {
 			t.Fatalf("Expected to find 1 fulfilled purchase, but got %d", len(fulfilled))
 		}
 	})
+
+	t.Run("Cancel Purchase by Kid", func(t *testing.T) {
+		// Reset user1 points to 100
+		dbExec(t, "UPDATE users SET points = 100 WHERE username = 'reward_user1'")
+		// Reset cooperative points to 200
+		dbExec(t, "UPDATE choregroups SET cooperative_points = 200 WHERE name = 'Reward Group'")
+
+		// 1. Purchase individual reward
+		purchaseURL := fmt.Sprintf("/api/choregroups/%s/purchases", user1Login.ChoreGroupID)
+		purchaseReq := model.CreatePurchaseRequest{RewardID: individualReward.ID}
+		rrPurchase := performRequest(t, mustNewRequestWithAuth("POST", purchaseURL, toBody(purchaseReq), user1Login.UserID.String()), http.StatusCreated)
+		var purchase model.RewardPurchase
+		json.NewDecoder(rrPurchase.Body).Decode(&purchase)
+
+		// Points should be 0 (100 - 100)
+		stats := getStats(t, adminLogin)
+		for _, u := range stats.Users {
+			if u.Username == "reward_user1" && u.Points != 0 {
+				t.Errorf("Expected user1 points to be 0 after purchase, got %d", u.Points)
+			}
+		}
+
+		// Cancel purchase
+		cancelURL := fmt.Sprintf("/api/choregroups/%s/purchases/%s", user1Login.ChoreGroupID, purchase.ID)
+		performRequest(t, mustNewRequestWithAuth("DELETE", cancelURL, nil, user1Login.UserID.String()), http.StatusNoContent)
+
+		// Verify points are refunded (should be 100 again)
+		stats = getStats(t, adminLogin)
+		for _, u := range stats.Users {
+			if u.Username == "reward_user1" && u.Points != 100 {
+				t.Errorf("Expected user1 points to be 100 after cancel, got %d", u.Points)
+			}
+		}
+
+		// Verify purchase is deleted
+		listAllURL := fmt.Sprintf("/api/choregroups/%s/purchases", adminLogin.ChoreGroupID)
+		rrAll := performRequest(t, mustNewRequestWithAuth("GET", listAllURL, nil, adminLogin.UserID.String()), http.StatusOK)
+		var all []model.RewardPurchase
+		json.NewDecoder(rrAll.Body).Decode(&all)
+		// Check that the purchase ID doesn't exist anymore in the list (or list only contains the previously fulfilled one)
+		for _, p := range all {
+			if p.ID == purchase.ID {
+				t.Errorf("Expected purchase %s to be deleted, but it is still returned", p.ID)
+			}
+		}
+
+		// 2. Cooperative purchase cancellation
+		coopPurchaseReq := model.CreatePurchaseRequest{RewardID: cooperativeReward.ID}
+		rrCoop := performRequest(t, mustNewRequestWithAuth("POST", purchaseURL, toBody(coopPurchaseReq), user1Login.UserID.String()), http.StatusCreated)
+		var coopPurchase model.RewardPurchase
+		json.NewDecoder(rrCoop.Body).Decode(&coopPurchase)
+
+		// Points check: user1 points should be 100 - 200 (error, wait! reward cost is 200, user1 only has 100!)
+		// Oh! The individual points of user1 needs to be >= 200!
+		// Let's set user1 points to 300
+		dbExec(t, "UPDATE users SET points = 300 WHERE username = 'reward_user1'")
+		// Let's set coop points to 300
+		dbExec(t, "UPDATE choregroups SET cooperative_points = 300 WHERE name = 'Reward Group'")
+
+		rrCoop2 := performRequest(t, mustNewRequestWithAuth("POST", purchaseURL, toBody(coopPurchaseReq), user1Login.UserID.String()), http.StatusCreated)
+		var coopPurchase2 model.RewardPurchase
+		json.NewDecoder(rrCoop2.Body).Decode(&coopPurchase2)
+
+		// Cancel cooperative purchase
+		cancelCoopURL := fmt.Sprintf("/api/choregroups/%s/purchases/%s", user1Login.ChoreGroupID, coopPurchase2.ID)
+		performRequest(t, mustNewRequestWithAuth("DELETE", cancelCoopURL, nil, user1Login.UserID.String()), http.StatusNoContent)
+
+		// Verify user1 points are refunded (should be 300 again)
+		stats = getStats(t, adminLogin)
+		for _, u := range stats.Users {
+			if u.Username == "reward_user1" && u.Points != 300 {
+				t.Errorf("Expected user1 points to be 300 after coop cancel, got %d", u.Points)
+			}
+		}
+		// Verify coop points are refunded (should be 300 again)
+		if stats.CooperativePoints != 300 {
+			t.Errorf("Expected coop points to be 300 after cancel, got %d", stats.CooperativePoints)
+		}
+	})
 }
 
 // Helper functions to reduce boilerplate

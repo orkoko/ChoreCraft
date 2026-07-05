@@ -8,8 +8,10 @@ let activeTasks = [];
 
 // Resolve API base URL dynamically based on page loading domain
 function getApiBase() {
-  const API_HOST = window.location.hostname;
-  return `http://${API_HOST}:8080/api`;
+  if (window.location.protocol === 'file:') {
+    return 'http://localhost:8080/api';
+  }
+  return '/api';
 }
 
 function getRelevantEmoji(title) {
@@ -61,6 +63,10 @@ function getRelevantEmoji(title) {
   // 🧹 Sweep / Vacuum / Clean / Floor
   if (lower.includes("dust") || lower.includes("sweep") || lower.includes("vacuum") || lower.includes("floor") || lower.includes("mop") || lower.includes("clean") ||
       lower.includes("לטאטא") || lower.includes("לשאוב") || lower.includes("רצפה") || lower.includes("ספונג") || lower.includes("לנקות") || lower.includes("אבק")) return "🧹";
+      
+  // 💻 Computer / Laptop / Screen
+  if (lower.includes("computer") || lower.includes("laptop") || lower.includes("screen") ||
+      lower.includes("מחשב") || lower.includes("מסך")) return "💻";
       
   // 📚 Study / Homework
   if (lower.includes("study") || lower.includes("homework") || lower.includes("school") || lower.includes("learn") ||
@@ -156,8 +162,9 @@ function setPointsSelectValue(val) {
   
   const isCooperative = container.classList.contains("coop-theme");
   const coinClass = isCooperative ? "points-coin coop-theme" : "points-coin";
+  const coinEmoji = isCooperative ? "🐱🐱" : "🐱";
   trigger.innerHTML = `
-    <span>+${val} <span class="${coinClass}" id="chore-points-coin">🐱</span></span>
+    <span>+${val} <span class="${coinClass}" id="chore-points-coin">${coinEmoji}</span></span>
     <span class="arrow">▼</span>
   `;
 }
@@ -404,7 +411,7 @@ async function handleParentSignUp(e) {
 async function handleLogin(e) {
   e.preventDefault();
   
-  const familyName = document.getElementById("p-login-group-name").value.trim();
+  const familyName = "";
   const username = document.getElementById("p-login-user").value.trim();
   const password = document.getElementById("p-login-pass").value;
   
@@ -483,7 +490,7 @@ function updateHeaderAuthBtn() {
     const isKid = currentSession.role === "user";
     if (isKid) {
       if (headerStats) {
-        headerStats.innerHTML = `👋 Hi, <strong>${escapeHTML(currentSession.username)}</strong> (<strong>${currentSession.points || 0}</strong> <span class="points-coin">🐱</span> | <strong>${currentSession.cooperative_points || 0}</strong> <span class="points-coin coop-theme">🐱</span>)`;
+        headerStats.innerHTML = `<strong>${escapeHTML(currentSession.username)}</strong> (<strong>${currentSession.points || 0}</strong> <span class="points-coin">🐱</span> | <strong>${currentSession.cooperative_points || 0}</strong> <span class="points-coin coop-theme">🐱🐱</span>)`;
         headerStats.style.display = "flex";
       }
       container.innerHTML = `
@@ -573,13 +580,11 @@ async function renderParentDashboard() {
 
       
       let assigneeHtml = "";
-      if (task.type !== "cooperative") {
-        let assigneeName = "Anyone / Unassigned";
-        if (task.assigned_to_user_id) {
-          const assignee = familyMembers.find(u => u.id === task.assigned_to_user_id);
-          assigneeName = assignee ? assignee.username : "Unassigned";
+      if (task.type !== "cooperative" && task.assigned_to_user_id) {
+        const assignee = familyMembers.find(u => u.id === task.assigned_to_user_id);
+        if (assignee) {
+          assigneeHtml = `<p>Assigned to: <strong>${assignee.username}</strong></p>`;
         }
-        assigneeHtml = `<p>Assigned to: <strong>${assigneeName}</strong></p>`;
       }
       
       const card = document.createElement("div");
@@ -598,9 +603,9 @@ async function renderParentDashboard() {
       
       const controlsHtml = `
         <div class="card-controls">
-          ${task.status !== "pending_approval" && task.status !== "expired" ? `<button class="btn btn-outline btn-sm" onclick="openEditChoreModal('${task.id}')">✏️ Edit</button>` : ''}
-          ${task.status === "expired" ? `<button class="btn btn-outline btn-sm" onclick="openEditChoreModal('${task.id}')">✏️ Edit</button>` : ''}
-          <button class="btn btn-outline btn-sm" style="color: var(--destructive-red); border-color: var(--destructive-red);" onclick="deleteChore('${task.id}')">🗑️ Delete</button>
+          ${task.status !== "pending_approval" && task.status !== "expired" ? `<button class="btn btn-outline btn-sm" onclick="openEditChoreModal('${task.id}')">✏️</button>` : ''}
+          ${task.status === "expired" ? `<button class="btn btn-outline btn-sm" onclick="openEditChoreModal('${task.id}')">✏️</button>` : ''}
+          <button class="btn btn-outline btn-sm" style="color: var(--destructive-red); border-color: var(--destructive-red);" onclick="deleteChore('${task.id}')">🗑️</button>
         </div>
       `;
       
@@ -609,19 +614,25 @@ async function renderParentDashboard() {
         timerHtml = `<div class="task-timer-badge" data-expires="${task.expires_at}" data-mandatory="${task.is_mandatory}" style="margin-top: 0.5rem; font-size: 0.85rem; color: #e65100; font-weight: bold;">⏳ Loading timer...</div>`;
       }
 
-      const coinHtml = task.type === "cooperative" ? `<span class="points-coin coop-theme">🐱</span>` : `<span class="points-coin">🐱</span>`;
+      const coinHtml = task.type === "cooperative" ? `<span class="points-coin coop-theme">🐱🐱</span>` : `<span class="points-coin">🐱</span>`;
       card.innerHTML = `
-        <div class="card-badge" ${task.is_mandatory ? 'style="background-color: var(--danger-red); color: white;"' : ''}>${task.is_mandatory ? '0' : '+' + task.points_reward} ${coinHtml}</div>
-        <div class="card-emoji-container">${emoji}</div>
-        <div class="card-details">
-          <h3>${displayTitle}</h3>
-          ${assigneeHtml}
-          ${timerHtml}
+        <div class="card-top">
+          <div class="card-emoji-box">${emoji}</div>
+          <div class="card-details">
+            <h3>${displayTitle}</h3>
+            ${assigneeHtml}
+            ${timerHtml}
+          </div>
         </div>
         <div class="card-actions-row">
-          ${statusHtml}
-          ${extendHtml}
-          ${controlsHtml}
+          <div class="card-points-badge" ${task.is_mandatory ? 'style="background-color: var(--danger-red); color: white;"' : ''}>
+            ${task.is_mandatory ? '0' : '+' + task.points_reward} ${coinHtml}
+          </div>
+          <div class="card-controls">
+            ${statusHtml}
+            ${extendHtml}
+            ${controlsHtml}
+          </div>
         </div>
       `;
       choresList.appendChild(card);
@@ -651,7 +662,7 @@ async function renderParentDashboard() {
       subItem.innerHTML = `
         <div class="sub-header">
           <span class="sub-who">👾 ${kid.username} completed:</span>
-          <span class="sub-pts">+${task.points_reward} ${task.type === 'cooperative' ? '<span class="points-coin coop-theme">🐱</span>' : '<span class="points-coin">🐱</span>'}</span>
+          <span class="sub-pts">+${task.points_reward} ${task.type === 'cooperative' ? '<span class="points-coin coop-theme">🐱🐱</span>' : '<span class="points-coin">🐱</span>'}</span>
         </div>
         <div class="sub-chore">
           <span class="sub-chore-emoji">${emoji}</span>
@@ -1053,15 +1064,23 @@ async function renderKidDashboard() {
       let displayTitle = task.type === "cooperative" ? `${title} (👥)` : title;
       if (task.is_mandatory) displayTitle = "🚨 " + displayTitle + " (Mandatory)";
       
-      const coinHtml = task.type === "cooperative" ? `<span class="points-coin coop-theme">🐱</span>` : `<span class="points-coin">🐱</span>`;
+      const coinHtml = task.type === "cooperative" ? `<span class="points-coin coop-theme">🐱🐱</span>` : `<span class="points-coin">🐱</span>`;
       card.innerHTML = `
-        <div class="card-badge" ${task.is_mandatory ? 'style="background-color: var(--danger-red); color: white;"' : ''}>${task.is_mandatory ? '0' : '+' + task.points_reward} ${coinHtml}</div>
-        <div class="card-emoji-container">${emoji}</div>
-        <div class="card-details">
-          <h3 ${isDisabled ? 'style="color: #999;"' : ''}>${displayTitle}</h3>
-          ${timerHtml}
+        <div class="card-top">
+          <div class="card-emoji-box">${emoji}</div>
+          <div class="card-details">
+            <h3 ${isDisabled ? 'style="color: #999;"' : ''}>${displayTitle}</h3>
+            ${timerHtml}
+          </div>
         </div>
-        ${actionHtml}
+        <div class="card-actions-row">
+          <div class="card-points-badge" ${task.is_mandatory ? 'style="background-color: var(--danger-red); color: white;"' : ''}>
+            ${task.is_mandatory ? '0' : '+' + task.points_reward} ${coinHtml}
+          </div>
+          <div class="card-controls">
+            ${actionHtml}
+          </div>
+        </div>
       `;
       kidChoresList.appendChild(card);
     });
@@ -1209,8 +1228,8 @@ async function updateLeaderboards() {
   const statsHtml = `
     <div class="stats-container">
       <div class="stats-metric">
-        <span class="stats-label"><span class="points-coin coop-theme">🐱</span> Cooperative Coins:</span>
-        <span class="stats-value">${cooperativeCoins} <span class="points-coin coop-theme">🐱</span></span>
+        <span class="stats-label"><span class="points-coin coop-theme">🐱🐱</span> Cooperative Coins:</span>
+        <span class="stats-value">${cooperativeCoins} <span class="points-coin coop-theme">🐱🐱</span></span>
       </div>
       <div class="stats-contributions">
         <h4>Coins Breakdown:</h4>
@@ -1474,7 +1493,9 @@ function switchParentTab(tab) {
   document.getElementById('parent-chores-content').style.display = tab === 'chores' ? 'block' : 'none';
   document.getElementById('parent-rewards-content').style.display = tab === 'rewards' ? 'block' : 'none';
   
-  if (tab === 'rewards') {
+  if (tab === 'chores') {
+    renderParentDashboard();
+  } else if (tab === 'rewards') {
     renderRewardsDashboard();
   }
 }
@@ -1595,23 +1616,26 @@ async function renderRewardsDashboard() {
             const costClass = isCoop ? 'reward-cost-display coop-theme' : 'reward-cost-display';
             const { emoji, title } = parseChoreTitle(reward.name);
             const adminButtons = `
-              <button class="btn btn-outline btn-sm" onclick="openEditRewardModal('${reward.id}')">✏️ Edit</button>
-              <button class="btn btn-outline btn-sm" style="color: var(--destructive-red); border-color: var(--destructive-red);" onclick="handleDeleteReward('${reward.id}')">🗑️ Delete</button>
+              <button class="btn btn-outline btn-sm" onclick="openEditRewardModal('${reward.id}')">✏️</button>
+              <button class="btn btn-outline btn-sm" style="color: var(--destructive-red); border-color: var(--destructive-red);" onclick="handleDeleteReward('${reward.id}')">🗑️</button>
             `;
             
+            const coinHtml = isCoop ? `<span class="points-coin coop-theme">🐱🐱</span>` : `<span class="points-coin">🐱</span>`;
             return `
               <div class="reward-card">
-                <div class="reward-card-header">
-                  <div class="reward-emoji-box">${emoji}</div>
+                <div class="card-top">
+                  <div class="card-emoji-box">${emoji}</div>
+                  <div class="card-details">
+                    <h3>${escapeHTML(title)}</h3>
+                    <p>${escapeHTML(reward.description || '')}</p>
+                    ${displayNote}
+                  </div>
                 </div>
-                <div class="reward-card-body">
-                  <div class="reward-title">${escapeHTML(title)}</div>
-                  <div class="reward-desc">${escapeHTML(reward.description || '')}</div>
-                  ${displayNote}
-                </div>
-                <div class="reward-card-footer">
-                  <div class="${costClass}">${cost} <span class="points-coin">🐱</span></div>
-                  <div class="reward-actions">
+                <div class="card-actions-row">
+                  <div class="card-points-badge ${costClass}">
+                    ${cost} ${coinHtml}
+                  </div>
+                  <div class="card-controls">
                     ${adminButtons}
                   </div>
                 </div>
@@ -1634,14 +1658,28 @@ async function renderRewardsDashboard() {
             const rewardName = reward ? reward.name : 'Unknown Reward';
             const buyer = membersMap[purchase.purchased_by_user_id] || 'a household member';
             
+            const cost = reward ? reward.cost : 0;
+            const isCoop = reward && reward.type === 'cooperative';
+            const costClass = isCoop ? 'reward-cost-display coop-theme' : 'reward-cost-display';
+            const coinHtml = isCoop ? `<span class="points-coin coop-theme">🐱🐱</span>` : `<span class="points-coin">🐱</span>`;
+            const { emoji, title } = parseChoreTitle(rewardName);
+            
             return `
-              <div class="pending-item" style="display: flex; justify-content: space-between; align-items: center; background-color: var(--card-bg); padding: 1.25rem; border: 2px solid var(--border-color); border-radius: var(--radius-lg); margin-bottom: 1rem;">
-                <div class="pending-info">
-                  <div class="pending-title" style="font-weight: 800; font-size: 1.1rem; color: var(--text-main);">🎁 ${escapeHTML(rewardName)}</div>
-                  <div class="reward-purchase-meta">Purchased by <strong>${escapeHTML(buyer)}</strong></div>
+              <div class="pending-item">
+                <div class="card-top">
+                  <div class="card-emoji-box">${emoji}</div>
+                  <div class="card-details">
+                    <h3>${escapeHTML(title)}</h3>
+                    <p>Purchased by <strong>${escapeHTML(buyer)}</strong></p>
+                  </div>
                 </div>
-                <div class="pending-actions">
-                  <button class="btn btn-primary btn-sm" onclick="handleFulfillPurchase('${purchase.id}')">📦 Mark as Fulfilled</button>
+                <div class="card-actions-row">
+                  <div class="card-points-badge ${costClass}">
+                    ${cost} ${coinHtml}
+                  </div>
+                  <div class="card-controls">
+                    <button class="btn btn-primary btn-sm" onclick="handleFulfillPurchase('${purchase.id}')">📦 Mark as Fulfilled</button>
+                  </div>
                 </div>
               </div>
             `;
@@ -1681,23 +1719,23 @@ async function renderRewardsDashboard() {
 
             const costClass = isCoop ? 'reward-cost-display coop-theme' : 'reward-cost-display';
             const { emoji, title } = parseChoreTitle(reward.name);
-            const buyButtonText = isCoop ? 'Buy (Co-op)' : 'Buy';
+            const coinHtml = isCoop ? `<span class="points-coin coop-theme">🐱🐱</span>` : `<span class="points-coin">🐱</span>`;
             const buttonClass = isCoop ? 'btn btn-primary btn-sm coop-theme' : 'btn btn-primary btn-sm';
-            const buyButton = `<button class="${buttonClass}" ${buyDisabled ? 'disabled' : ''} onclick="handleBuyReward('${reward.id}', '${reward.name.replace(/'/g, "\\'")}')">${buyButtonText}</button>`;
+            const buyButton = `<button class="${buttonClass}" ${buyDisabled ? 'disabled' : ''} onclick="handleBuyReward('${reward.id}', '${reward.name.replace(/'/g, "\\'")}')">${cost} ${coinHtml}</button>`;
             
             return `
               <div class="reward-card ${buyDisabled ? 'disabled' : ''}">
-                <div class="reward-card-header">
-                  <div class="reward-emoji-box">${emoji}</div>
+                <div class="card-top">
+                  <div class="card-emoji-box">${emoji}</div>
+                  <div class="card-details">
+                    <h3>${escapeHTML(title)}</h3>
+                    <p>${escapeHTML(reward.description || '')}</p>
+                    ${displayNote}
+                  </div>
                 </div>
-                <div class="reward-card-body">
-                  <div class="reward-title">${escapeHTML(title)}</div>
-                  <div class="reward-desc">${escapeHTML(reward.description || '')}</div>
-                  ${displayNote}
-                </div>
-                <div class="reward-card-footer">
-                  <div class="${costClass}">${cost} <span class="points-coin">🐱</span></div>
-                  <div class="reward-actions">
+                <div class="card-actions-row">
+                  <div class="card-points-badge"></div>
+                  <div class="card-controls">
                     ${buyButton}
                   </div>
                 </div>
@@ -1719,14 +1757,27 @@ async function renderRewardsDashboard() {
             const reward = rewards.find(r => r.id === purchase.reward_id);
             const rewardName = reward ? reward.name : 'Unknown Reward';
             const statusLabel = purchase.status === 'pending_approval' ? '⏳ Voting...' : '✅ Approved (Awaiting Parent)';
+            const cost = reward ? reward.cost : 0;
+            const isCoop = reward && reward.type === 'cooperative';
+            const costClass = isCoop ? 'reward-cost-display coop-theme' : 'reward-cost-display';
+            const coinHtml = isCoop ? `<span class="points-coin coop-theme">🐱🐱</span>` : `<span class="points-coin">🐱</span>`;
+            const { emoji, title } = parseChoreTitle(rewardName);
             return `
-              <div class="pending-item" style="display: flex; flex-direction: column; gap: 0.75rem; background-color: var(--card-bg); padding: 1rem; border: 2px solid var(--border-color); border-radius: var(--radius-lg); margin-bottom: 0.75rem;">
-                <div class="pending-info">
-                  <div class="pending-title" style="font-weight: 800; font-size: 1rem; color: var(--text-main);">🎁 ${escapeHTML(rewardName)}</div>
-                  <div class="reward-purchase-meta" style="font-size: 0.85rem; color: var(--text-muted);">${statusLabel}</div>
+              <div class="pending-item">
+                <div class="card-top">
+                  <div class="card-emoji-box">${emoji}</div>
+                  <div class="card-details">
+                    <h3>${escapeHTML(title)}</h3>
+                    <p>${statusLabel}</p>
+                  </div>
                 </div>
-                <div class="pending-actions" style="display: flex; width: 100%;">
-                  <button class="btn btn-outline btn-sm" style="flex: 1; color: var(--destructive-red); border-color: var(--destructive-red); padding: 0.35rem;" onclick="handleCancelPurchase('${purchase.id}')">❌ Cancel</button>
+                <div class="card-actions-row">
+                  <div class="card-points-badge ${costClass}">
+                    ${cost} ${coinHtml}
+                  </div>
+                  <div class="card-controls">
+                    <button class="btn btn-outline btn-sm" style="color: var(--destructive-red); border-color: var(--destructive-red);" onclick="handleCancelPurchase('${purchase.id}')">❌ Cancel</button>
+                  </div>
                 </div>
               </div>
             `;
@@ -1746,15 +1797,28 @@ async function renderRewardsDashboard() {
             const reward = rewards.find(r => r.id === purchase.reward_id);
             const rewardName = reward ? reward.name : 'Unknown Reward';
             const requester = membersMap[purchase.purchased_by_user_id] || 'a household member';
+            const cost = reward ? reward.cost : 0;
+            const isCoop = reward && reward.type === 'cooperative';
+            const costClass = isCoop ? 'reward-cost-display coop-theme' : 'reward-cost-display';
+            const coinHtml = isCoop ? `<span class="points-coin coop-theme">🐱🐱</span>` : `<span class="points-coin">🐱</span>`;
+            const { emoji, title } = parseChoreTitle(rewardName);
             return `
-              <div class="pending-item" style="display: flex; flex-direction: column; gap: 0.75rem; background-color: var(--card-bg); padding: 1rem; border: 2px solid var(--border-color); border-radius: var(--radius-lg); margin-bottom: 0.75rem;">
-                <div class="pending-info">
-                  <div class="pending-title" style="font-weight: 800; font-size: 1rem; color: var(--text-main);">🎁 ${escapeHTML(rewardName)}</div>
-                  <div class="reward-purchase-meta" style="font-size: 0.85rem; color: var(--text-muted);">Initiated by <strong>${escapeHTML(requester)}</strong></div>
+              <div class="pending-item">
+                <div class="card-top">
+                  <div class="card-emoji-box">${emoji}</div>
+                  <div class="card-details">
+                    <h3>${escapeHTML(title)}</h3>
+                    <p>Initiated by <strong>${escapeHTML(requester)}</strong></p>
+                  </div>
                 </div>
-                <div class="pending-actions" style="display: flex; gap: 0.5rem; width: 100%;">
-                  <button class="btn btn-outline btn-sm" style="flex: 1; color: var(--success-green); border-color: var(--success-green); padding: 0.35rem;" onclick="handleVotePurchase('${purchase.id}', 'approved')">✔️ Approve</button>
-                  <button class="btn btn-outline btn-sm" style="flex: 1; color: var(--destructive-red); border-color: var(--destructive-red); padding: 0.35rem;" onclick="handleVotePurchase('${purchase.id}', 'rejected')">❌ Reject</button>
+                <div class="card-actions-row">
+                  <div class="card-points-badge ${costClass}">
+                    ${cost} ${coinHtml}
+                  </div>
+                  <div class="card-controls">
+                    <button class="btn btn-outline btn-sm" style="color: var(--success-green); border-color: var(--success-green);" onclick="handleVotePurchase('${purchase.id}', 'approved')">✔️ Approve</button>
+                    <button class="btn btn-outline btn-sm" style="color: var(--destructive-red); border-color: var(--destructive-red);" onclick="handleVotePurchase('${purchase.id}', 'rejected')">❌ Reject</button>
+                  </div>
                 </div>
               </div>
             `;

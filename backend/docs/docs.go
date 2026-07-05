@@ -471,39 +471,6 @@ const docTemplate = `{
                 }
             }
         },
-        "/login": {
-            "post": {
-                "consumes": [
-                    "application/json"
-                ],
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "Auth"
-                ],
-                "summary": "Log in a user",
-                "parameters": [
-                    {
-                        "description": "User Credentials",
-                        "name": "credentials",
-                        "in": "body",
-                        "required": true,
-                        "schema": {
-                            "$ref": "#/definitions/model.LoginRequest"
-                        }
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "$ref": "#/definitions/model.LoginResponse"
-                        }
-                    }
-                }
-            }
-        },
         "/signup": {
             "post": {
                 "consumes": [
@@ -596,6 +563,12 @@ const docTemplate = `{
                 "assigned_to_user_id": {
                     "type": "string"
                 },
+                "expires_at": {
+                    "type": "string"
+                },
+                "is_mandatory": {
+                    "type": "boolean"
+                },
                 "points_reward": {
                     "type": "integer"
                 },
@@ -603,31 +576,6 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "type": {
-                    "type": "string"
-                }
-            }
-        },
-        "model.LoginRequest": {
-            "type": "object",
-            "properties": {
-                "password": {
-                    "type": "string"
-                },
-                "username": {
-                    "type": "string"
-                }
-            }
-        },
-        "model.LoginResponse": {
-            "type": "object",
-            "properties": {
-                "choregroup_id": {
-                    "type": "string"
-                },
-                "role": {
-                    "type": "string"
-                },
-                "user_id": {
                     "type": "string"
                 }
             }
@@ -669,8 +617,14 @@ const docTemplate = `{
                 "choregroup_id": {
                     "type": "string"
                 },
+                "expires_at": {
+                    "type": "string"
+                },
                 "id": {
                     "type": "string"
+                },
+                "is_mandatory": {
+                    "type": "boolean"
                 },
                 "points_reward": {
                     "type": "integer"
@@ -720,6 +674,12 @@ const docTemplate = `{
             "properties": {
                 "assigned_to_user_id": {
                     "type": "string"
+                },
+                "expires_at": {
+                    "type": "string"
+                },
+                "is_mandatory": {
+                    "type": "boolean"
                 },
                 "points_reward": {
                     "type": "integer"
