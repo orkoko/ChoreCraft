@@ -53,9 +53,7 @@ func (a *API) RegisterRoutes(r *chi.Mux) {
 	r.Post("/api/signup", a.signup)
 	r.Post("/api/login", a.login)
 	r.Post("/api/users", a.addUser)
-	r.Post("/api/login/pin", a.loginPIN)
 	r.Post("/api/login/delegated", a.loginDelegated)
-	r.Get("/api/choregroups/lookup", a.lookupChoreGroup)
 	r.Get("/swagger/*", httpSwagger.WrapHandler)
 
 	// Protected routes
@@ -74,6 +72,7 @@ func (a *API) RegisterRoutes(r *chi.Mux) {
 		r.Get("/submissions", a.listSubmissions)
 		// Users & Stats
 		r.Get("/statistics", a.getStatistics)
+		r.Post("/notifications/view", a.markNotificationsViewed)
 		r.Get("/members", a.getChoreGroupMembers)
 		r.Post("/members/{userID}/login-link", a.generateLoginLink)
 		r.Delete("/members/{userID}", a.deleteUser)
@@ -427,6 +426,17 @@ func (a *API) getStatistics(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(stats)
 }
 
+func (a *API) markNotificationsViewed(w http.ResponseWriter, r *http.Request) {
+	user := r.Context().Value(userKey).(model.User)
+	err := a.service.MarkNotificationsViewed(r.Context(), user.ID)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	w.WriteHeader(http.StatusOK)
+	w.Write([]byte(`{"status":"success"}`))
+}
+
 // getChoreGroupMembers godoc
 // @Summary      Get all members of a choregroup
 // @Tags         Users
@@ -730,42 +740,7 @@ func secureHeadersMiddleware(next http.Handler) http.Handler {
 	})
 }
 
-// loginPIN authenticates a kid avatar using user_id and 4-digit PIN.
-func (a *API) loginPIN(w http.ResponseWriter, r *http.Request) {
-	var req model.PINLoginRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
-		return
-	}
 
-	res, err := a.service.LoginWithPIN(r.Context(), req.UserID, req.PIN)
-	if errors.Is(err, service.ErrInvalidCredentials) {
-		http.Error(w, "Invalid PIN", http.StatusUnauthorized)
-		return
-	} else if err != nil {
-		http.Error(w, "Internal server error", http.StatusInternalServerError)
-		return
-	}
-
-	tokenStr, err := security.GenerateJWT(res.UserID, res.ChoreGroupID, res.Role, 24*time.Hour, a.jwtSecret)
-	if err != nil {
-		http.Error(w, "Internal server error generating token", http.StatusInternalServerError)
-		return
-	}
-
-	secure := r.TLS != nil || r.Header.Get("X-Forwarded-Proto") == "https"
-	http.SetCookie(w, &http.Cookie{
-		Name:     "token",
-		Value:    tokenStr,
-		Path:     "/",
-		HttpOnly: true,
-		Secure:   secure,
-		SameSite: http.SameSiteStrictMode,
-		MaxAge:   86400, // 24 hours
-	})
-
-	json.NewEncoder(w).Encode(res)
-}
 
 // loginDelegated logs in a kid automatically using a short-lived token.
 func (a *API) loginDelegated(w http.ResponseWriter, r *http.Request) {
@@ -813,34 +788,7 @@ func (a *API) loginDelegated(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(res)
 }
 
-// lookupChoreGroup searches for a household by name and lists public kid profiles.
-func (a *API) lookupChoreGroup(w http.ResponseWriter, r *http.Request) {
-	name := r.URL.Query().Get("name")
-	if name == "" {
-		http.Error(w, "Missing name query parameter", http.StatusBadRequest)
-		return
-	}
 
-	group, members, err := a.service.LookupChoreGroup(r.Context(), name)
-	if err != nil {
-		http.Error(w, "Household not found", http.StatusNotFound)
-		return
-	}
-
-	var kids []model.User
-	for _, m := range members {
-		if m.Role == "user" {
-			kids = append(kids, m)
-		}
-	}
-
-	resp := map[string]interface{}{
-		"id":      group.ID,
-		"name":    group.Name,
-		"members": kids,
-	}
-	json.NewEncoder(w).Encode(resp)
-}
 
 // generateLoginLink generates a short-lived token for delegated kid login.
 func (a *API) generateLoginLink(w http.ResponseWriter, r *http.Request) {

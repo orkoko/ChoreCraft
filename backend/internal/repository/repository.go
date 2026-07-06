@@ -87,22 +87,22 @@ func (r *Repository) AddUserToChoreGroup(ctx context.Context, choregroupName, us
 // GetUserByUsername retrieves a user by their unique username.
 func (r *Repository) GetUserByUsername(ctx context.Context, username string) (model.User, error) {
 	var user model.User
-	err := r.db.QueryRow(ctx, "SELECT id, choregroup_id, username, password_hash, role, points FROM users WHERE username = $1", username).Scan(
-		&user.ID, &user.ChoreGroupID, &user.Username, &user.PasswordHash, &user.Role, &user.Points)
+	err := r.db.QueryRow(ctx, "SELECT id, choregroup_id, username, password_hash, role, points, notifications_viewed FROM users WHERE username = $1", username).Scan(
+		&user.ID, &user.ChoreGroupID, &user.Username, &user.PasswordHash, &user.Role, &user.Points, &user.NotificationsViewed)
 	return user, err
 }
 
 // GetUserByID retrieves a user by their ID.
 func (r *Repository) GetUserByID(ctx context.Context, userID uuid.UUID) (model.User, error) {
 	var user model.User
-	err := r.db.QueryRow(ctx, "SELECT id, choregroup_id, username, role, points FROM users WHERE id = $1", userID).Scan(
-		&user.ID, &user.ChoreGroupID, &user.Username, &user.Role, &user.Points)
+	err := r.db.QueryRow(ctx, "SELECT id, choregroup_id, username, role, points, notifications_viewed FROM users WHERE id = $1", userID).Scan(
+		&user.ID, &user.ChoreGroupID, &user.Username, &user.Role, &user.Points, &user.NotificationsViewed)
 	return user, err
 }
 
 // GetUsersByChoreGroupID retrieves all users belonging to a specific choregroup.
 func (r *Repository) GetUsersByChoreGroupID(ctx context.Context, choregroupID uuid.UUID) ([]model.User, error) {
-	rows, err := r.db.Query(ctx, "SELECT id, choregroup_id, username, role, points FROM users WHERE choregroup_id = $1", choregroupID)
+	rows, err := r.db.Query(ctx, "SELECT id, choregroup_id, username, role, points, notifications_viewed FROM users WHERE choregroup_id = $1", choregroupID)
 	if err != nil {
 		return nil, err
 	}
@@ -111,7 +111,7 @@ func (r *Repository) GetUsersByChoreGroupID(ctx context.Context, choregroupID uu
 	var users []model.User
 	for rows.Next() {
 		var user model.User
-		if err := rows.Scan(&user.ID, &user.ChoreGroupID, &user.Username, &user.Role, &user.Points); err != nil {
+		if err := rows.Scan(&user.ID, &user.ChoreGroupID, &user.Username, &user.Role, &user.Points, &user.NotificationsViewed); err != nil {
 			return nil, err
 		}
 		users = append(users, user)
@@ -214,7 +214,7 @@ func (r *Repository) ListAllTasksForChoreGroup(ctx context.Context, choregroupID
 
 // GetUsersSortedByPoints retrieves users for a specific choregroup, sorted by points.
 func (r *Repository) GetUsersSortedByPoints(ctx context.Context, choregroupID uuid.UUID) ([]model.User, error) {
-	rows, err := r.db.Query(ctx, "SELECT id, choregroup_id, username, role, points FROM users WHERE choregroup_id = $1 ORDER BY points DESC", choregroupID)
+	rows, err := r.db.Query(ctx, "SELECT id, choregroup_id, username, role, points, notifications_viewed FROM users WHERE choregroup_id = $1 ORDER BY points DESC", choregroupID)
 	if err != nil {
 		return nil, err
 	}
@@ -222,12 +222,18 @@ func (r *Repository) GetUsersSortedByPoints(ctx context.Context, choregroupID uu
 	var users []model.User
 	for rows.Next() {
 		var user model.User
-		if err := rows.Scan(&user.ID, &user.ChoreGroupID, &user.Username, &user.Role, &user.Points); err != nil {
+		if err := rows.Scan(&user.ID, &user.ChoreGroupID, &user.Username, &user.Role, &user.Points, &user.NotificationsViewed); err != nil {
 			return nil, err
 		}
 		users = append(users, user)
 	}
 	return users, nil
+}
+
+// MarkNotificationsViewed marks notifications_viewed to true for a user.
+func (r *Repository) MarkNotificationsViewed(ctx context.Context, userID uuid.UUID) error {
+	_, err := r.db.Exec(ctx, "UPDATE users SET notifications_viewed = TRUE WHERE id = $1", userID)
+	return err
 }
 
 // GetTask retrieves a task by ID and choregroupID.

@@ -28,10 +28,46 @@
       <div id="header-user-stats"
         style="display: none; font-size: 1.15rem; font-weight: 800; color: var(--text-main); align-items: center; gap: 0.5rem; margin: 0 auto;">
       </div>
-      <!-- Navigation disabled for simplified view -->
-      <div class="auth-status" id="auth-status-container">
-        <!-- Dynamically filled by JS -->
-        <button class="btn btn-primary" onclick="openAuthModal('parent-signup')">Create ChoreCraft household</button>
+      <!-- Right Header Actions (grouped to maintain layout alignment) -->
+      <div class="right-header-group" style="display: flex; align-items: center; gap: 0.5rem;">
+        <!-- Notification Dropdown -->
+        <div class="notification-dropdown-container" id="header-notification-center" style="display: none;">
+          <button class="btn-notification-trigger" id="notification-trigger-btn" onclick="toggleNotificationDropdown(event)">
+            <svg class="bell-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"></path>
+              <path d="M13.73 21a2 2 0 0 1-3.46 0"></path>
+            </svg>
+            <span class="notification-badge" id="notification-badge" style="display: none;"></span>
+          </button>
+          <div class="notification-dropdown-menu" id="notification-dropdown-menu">
+            <div class="notification-dropdown-header">
+              <h4>Updates & Options</h4>
+            </div>
+            <div class="notification-dropdown-body">
+              <!-- PWA Install option (dynamic) -->
+              <div id="pwa-install-item" class="dropdown-item pwa-item" style="display: none;" onclick="triggerPwaInstall(event)">
+                <div class="dropdown-item-icon">📱</div>
+                <div class="dropdown-item-content">
+                  <strong>Add to Home Screen</strong>
+                  <span>Install ChoreCraft for quick access!</span>
+                </div>
+              </div>
+              <!-- Default state when nothing is pending -->
+              <div id="no-notifications-item" class="dropdown-item">
+                <div class="dropdown-item-icon">✨</div>
+                <div class="dropdown-item-content">
+                  <strong>All Caught Up!</strong>
+                  <span>No new updates or actions available.</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <!-- Navigation disabled for simplified view -->
+        <div class="auth-status" id="auth-status-container">
+          <!-- Dynamically filled by JS -->
+          <button class="btn btn-primary" onclick="openAuthModal('parent-signup')">Create ChoreCraft household</button>
+        </div>
       </div>
     </div>
   </header>
@@ -55,8 +91,7 @@
         </div>
         <button class="btn btn-primary btn-lg" onclick="openAuthModal('parent-signup')">Create ChoreCraft household
           🚀</button>
-        <button id="add-to-home-screen" class="btn btn-secondary btn-sm" style="display: none; margin-top: 1rem;">Add to
-          Home Screen</button>
+
       </div>
     </section>
 
@@ -74,7 +109,7 @@
           <div class="parent-chores-layout">
 
             <!-- TOP: PENDING APPROVALS (most actionable, shown first) -->
-            <div class="pending-submissions-block" id="parent-pending-submissions-container">
+            <div class="pending-submissions-block" id="parent-pending-submissions-container" style="display: none;">
               <h3>⏳ Pending Approvals</h3>
               <div class="pending-list" id="parent-pending-list">
                 <!-- Dynamically filled with Approve/Reject buttons -->
@@ -85,7 +120,7 @@
             <div class="parent-chores-area">
               <div class="section-title-row" style="justify-content: center;">
                 <h3 style="display: none;">📋 Active Chores</h3>
-                <button class="btn btn-primary btn-sm" onclick="openAddChoreModal()">➕ Add Chore</button>
+                <button class="btn btn-primary btn-sm" onclick="openAddChoreModal()"><span class="btn-plus-icon">+</span> Add Chore</button>
               </div>
               <div class="chores-grid" id="parent-chores-list">
                 <!-- Dynamically populated with Edit/Delete capabilities -->
@@ -106,8 +141,7 @@
                 <div class="members-list" id="parent-members-list">
                   <!-- Dynamically populated -->
                 </div>
-                <button class="btn btn-outline btn-block btn-sm" onclick="openAddUserModal()">➕ Add Family
-                  Member</button>
+                <button class="btn btn-outline btn-block btn-sm" onclick="openAddUserModal()"><span class="btn-plus-icon">+</span> Add Family Member</button>
               </div>
             </div>
 
@@ -119,12 +153,12 @@
         <div id="parent-rewards-content" class="tab-content" style="display: none;">
           <div class="rewards-dashboard-header"
             style="display: flex; justify-content: center; padding-bottom: 1rem; border-bottom: none;">
-            <button class="btn btn-primary btn-sm" onclick="openAddRewardModal()">➕ Add Reward</button>
+            <button class="btn btn-primary btn-sm" onclick="openAddRewardModal()"><span class="btn-plus-icon">+</span> Add Reward</button>
           </div>
 
           <div class="parent-rewards-layout">
             <!-- Top: Fulfillment section first -->
-            <div class="preview-card min-padding" id="parent-rewards-fulfillment-container">
+            <div class="preview-card min-padding" id="parent-rewards-fulfillment-container" style="display: none;">
               <h3 style="margin-bottom: 1rem; font-size: 1.1rem; color: var(--text-main);">📦 Ready for Fulfillment
                 <span class="badge" id="parent-fulfillment-rewards-count">0</span></h3>
               <div class="pending-list" id="parent-rewards-fulfillment-list">
@@ -271,61 +305,6 @@
         <div class="auth-switch-note text-center">
           Need to register a new family? <a href="#" onclick="toggleAuthForm('signup')">Sign Up here</a>.
         </div>
-        <div class="auth-switch-note text-center"
-          style="margin-top: 1rem; border-top: 1px solid var(--border-color); padding-top: 1rem;">
-          🔑 <a href="#" onclick="toggleAuthForm('pin-lookup')">Log In as Kid (PIN Code)</a>
-        </div>
-      </div>
-
-      <!-- KID PIN LOGIN: LOOKUP HOUSEHOLD -->
-      <div class="auth-panel" id="kid-pin-lookup-form" style="display: none;">
-        <h3>Find Your Family</h3>
-        <form onsubmit="handleFindHousehold(event)">
-          <div class="form-group">
-            <label for="pin-lookup-family-name">Family / Household Name</label>
-            <input type="text" id="pin-lookup-family-name" placeholder="e.g. Or & Liat's House" required>
-          </div>
-          <button type="submit" class="btn btn-primary btn-block">Find Household 🔍</button>
-        </form>
-        <div class="auth-switch-note text-center"
-          style="margin-top: 1rem; border-top: 1px solid var(--border-color); padding-top: 1rem;">
-          Are you a parent? <a href="#" onclick="toggleAuthForm('login')">Go to Parent Login</a>.
-        </div>
-      </div>
-
-      <!-- KID PIN LOGIN: SELECT AVATAR -->
-      <div class="auth-panel" id="kid-pin-avatar-form" style="display: none;">
-        <h3>Who Are You?</h3>
-        <div class="avatar-grid" id="kid-avatar-list"
-          style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 1rem; margin: 1.5rem 0; justify-items: center;">
-          <!-- Kid avatars dynamically loaded here -->
-        </div>
-        <button class="btn btn-secondary btn-block" onclick="toggleAuthForm('pin-lookup')">◀ Back</button>
-      </div>
-
-      <!-- KID PIN LOGIN: ENTER PIN -->
-      <div class="auth-panel" id="kid-pin-pad-form" style="display: none;">
-        <h3 id="pin-entry-title">Enter PIN</h3>
-        <input type="password" id="pin-input-field" class="text-center"
-          style="font-size: 2rem; letter-spacing: 0.5rem; width: 100%; margin-bottom: 1.5rem; border: 2px solid var(--primary); border-radius: 8px; padding: 0.5rem;"
-          readonly maxlength="4">
-
-        <div class="pin-pad-grid"
-          style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 0.75rem; margin-bottom: 1.5rem;">
-          <button type="button" class="btn btn-outline pin-pad-btn" onclick="pressPinNumber(1)">1</button>
-          <button type="button" class="btn btn-outline pin-pad-btn" onclick="pressPinNumber(2)">2</button>
-          <button type="button" class="btn btn-outline pin-pad-btn" onclick="pressPinNumber(3)">3</button>
-          <button type="button" class="btn btn-outline pin-pad-btn" onclick="pressPinNumber(4)">4</button>
-          <button type="button" class="btn btn-outline pin-pad-btn" onclick="pressPinNumber(5)">5</button>
-          <button type="button" class="btn btn-outline pin-pad-btn" onclick="pressPinNumber(6)">6</button>
-          <button type="button" class="btn btn-outline pin-pad-btn" onclick="pressPinNumber(7)">7</button>
-          <button type="button" class="btn btn-outline pin-pad-btn" onclick="pressPinNumber(8)">8</button>
-          <button type="button" class="btn btn-outline pin-pad-btn" onclick="pressPinNumber(9)">9</button>
-          <button type="button" class="btn btn-outline pin-pad-btn" onclick="clearPinNumber()">C</button>
-          <button type="button" class="btn btn-outline pin-pad-btn" onclick="pressPinNumber(0)">0</button>
-          <button type="button" class="btn btn-primary pin-pad-btn" onclick="submitPinLogin()">OK</button>
-        </div>
-        <button class="btn btn-secondary btn-block" onclick="goBackToAvatars()">◀ Back</button>
       </div>
     </div>
   </div>
@@ -492,8 +471,8 @@
   <div class="modal-backdrop" id="login-link-modal">
     <div class="modal-card">
       <button class="modal-close-btn" onclick="closeModal('login-link-modal')">×</button>
-      <h3>Kid Access Link 🔗</h3>
-      <p style="font-size: 0.95rem; color: var(--text-muted); margin-bottom: 1rem;">
+      <h3 id="login-link-modal-title">Kid Access Link 🔗</h3>
+      <p id="login-link-modal-text" style="font-size: 0.95rem; color: var(--text-muted); margin-bottom: 1rem;">
         Share this link to your child's device to log them in automatically. Valid for 5 minutes.
       </p>
       <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 1rem;">
@@ -535,22 +514,96 @@
   <script type="module" src="app.js"></script>
   <script>
     let deferredPrompt;
-    const addToHomeScreenBtn = document.getElementById('add-to-home-screen');
 
     window.addEventListener('beforeinstallprompt', (e) => {
       // Prevent Chrome 67 and earlier from automatically showing the prompt
       e.preventDefault();
       // Stash the event so it can be triggered later.
       deferredPrompt = e;
-      // Update UI to notify the user they can add to home screen
-      addToHomeScreenBtn.style.display = 'block';
+      
+      // Update UI to show the install option inside the dropdown
+      const pwaItem = document.getElementById('pwa-install-item');
+      if (pwaItem) {
+        pwaItem.style.display = 'flex';
+      }
+      
+      // Hide the 'All Caught Up!' placeholder
+      const noNotifItem = document.getElementById('no-notifications-item');
+      if (noNotifItem) {
+        noNotifItem.style.display = 'none';
+      }
+      
+      // Show notification badge only if not already viewed
+      if (!window.shouldShowNotificationBadge || window.shouldShowNotificationBadge()) {
+        const badge = document.getElementById('notification-badge');
+        if (badge) {
+          badge.style.display = 'block';
+        }
+      }
     });
 
-    addToHomeScreenBtn.addEventListener('click', (e) => {
-      // hide our user interface that shows our A2HS button
-      addToHomeScreenBtn.style.display = 'none';
+    window.toggleNotificationDropdown = (event) => {
+      if (event) event.stopPropagation();
+      const menu = document.getElementById('notification-dropdown-menu');
+      if (menu) {
+        menu.classList.toggle('active');
+        if (menu.classList.contains('active')) {
+          if (window.markNotificationsRead) {
+            window.markNotificationsRead();
+          }
+        }
+      }
+      // Close user dropdown if open
+      const userMenu = document.getElementById('user-dropdown-menu');
+      if (userMenu) {
+        userMenu.classList.remove('active');
+      }
+    };
+
+    window.toggleUserDropdown = (event) => {
+      if (event) event.stopPropagation();
+      const menu = document.getElementById('user-dropdown-menu');
+      if (menu) {
+        menu.classList.toggle('active');
+      }
+      // Close notification dropdown if open
+      const notifMenu = document.getElementById('notification-dropdown-menu');
+      if (notifMenu) {
+        notifMenu.classList.remove('active');
+      }
+    };
+
+    window.triggerPwaInstall = (event) => {
+      if (event) event.stopPropagation();
+      if (!deferredPrompt) return;
+      
+      // Hide the install item in UI
+      const pwaItem = document.getElementById('pwa-install-item');
+      if (pwaItem) {
+        pwaItem.style.display = 'none';
+      }
+      
+      // Show the 'All Caught Up!' placeholder
+      const noNotifItem = document.getElementById('no-notifications-item');
+      if (noNotifItem) {
+        noNotifItem.style.display = 'flex';
+      }
+      
+      // Hide notification badge
+      const badge = document.getElementById('notification-badge');
+      if (badge) {
+        badge.style.display = 'none';
+      }
+      
+      // Close dropdown
+      const menu = document.getElementById('notification-dropdown-menu');
+      if (menu) {
+        menu.classList.remove('active');
+      }
+      
       // Show the prompt
       deferredPrompt.prompt();
+      
       // Wait for the user to respond to the prompt
       deferredPrompt.userChoice.then((choiceResult) => {
         if (choiceResult.outcome === 'accepted') {
@@ -560,6 +613,23 @@
         }
         deferredPrompt = null;
       });
+    };
+
+    // Close dropdown on click outside
+    document.addEventListener('click', (e) => {
+      // Notification dropdown
+      const notifMenu = document.getElementById('notification-dropdown-menu');
+      const notifTrigger = document.getElementById('notification-trigger-btn');
+      if (notifMenu && notifMenu.classList.contains('active') && !notifMenu.contains(e.target) && e.target !== notifTrigger && !notifTrigger.contains(e.target)) {
+        notifMenu.classList.remove('active');
+      }
+
+      // User dropdown
+      const userMenu = document.getElementById('user-dropdown-menu');
+      const userTrigger = document.getElementById('user-trigger-btn');
+      if (userMenu && userMenu.classList.contains('active') && !userMenu.contains(e.target) && e.target !== userTrigger && !userTrigger.contains(e.target)) {
+        userMenu.classList.remove('active');
+      }
     });
   </script>
 </body>

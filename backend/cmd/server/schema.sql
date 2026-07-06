@@ -77,4 +77,7 @@ ALTER TABLE users DROP CONSTRAINT IF EXISTS users_username_key;
 ALTER TABLE users DROP CONSTRAINT IF EXISTS users_choregroup_username_key;
 ALTER TABLE users ADD CONSTRAINT users_choregroup_username_key UNIQUE (choregroup_id, username);
 
+-- Migration to support user notifications read synchronization
+ALTER TABLE users ADD COLUMN IF NOT EXISTS notifications_viewed BOOLEAN NOT NULL DEFAULT FALSE;
+
 

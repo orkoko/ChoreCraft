@@ -103,6 +103,11 @@ func (s *Service) GetUserByID(ctx context.Context, userID uuid.UUID) (model.User
 	return s.repo.GetUserByID(ctx, userID)
 }
 
+// MarkNotificationsViewed updates notifications_viewed state.
+func (s *Service) MarkNotificationsViewed(ctx context.Context, userID uuid.UUID) error {
+	return s.repo.MarkNotificationsViewed(ctx, userID)
+}
+
 // GetChoreGroupMembers retrieves all users belonging to a specific choregroup.
 func (s *Service) GetChoreGroupMembers(ctx context.Context, choregroupID uuid.UUID) ([]model.User, error) {
 	return s.repo.GetUsersByChoreGroupID(ctx, choregroupID)
@@ -594,35 +599,7 @@ func (s *Service) CancelPurchase(ctx context.Context, user model.User, purchaseI
 	return s.repo.DeleteRewardPurchase(ctx, purchaseID, user.ChoreGroupID)
 }
 
-// LookupChoreGroup searches for a household by name and returns members.
-func (s *Service) LookupChoreGroup(ctx context.Context, name string) (model.ChoreGroup, []model.User, error) {
-	group, err := s.repo.GetChoreGroupByName(ctx, name)
-	if err != nil {
-		return model.ChoreGroup{}, nil, err
-	}
-	members, err := s.repo.GetUsersByChoreGroupID(ctx, group.ID)
-	if err != nil {
-		return model.ChoreGroup{}, nil, err
-	}
-	return group, members, nil
-}
 
-// LoginWithPIN authenticates a user using their ID and 4-digit PIN.
-func (s *Service) LoginWithPIN(ctx context.Context, userID uuid.UUID, pin string) (model.LoginResponse, error) {
-	user, err := s.repo.GetUserByID(ctx, userID)
-	if err != nil {
-		return model.LoginResponse{}, ErrInvalidCredentials
-	}
-	if !checkPasswordHash(pin, user.PasswordHash) {
-		return model.LoginResponse{}, ErrInvalidCredentials
-	}
-	return model.LoginResponse{
-		UserID:       user.ID,
-		Username:     user.Username,
-		ChoreGroupID: user.ChoreGroupID,
-		Role:         user.Role,
-	}, nil
-}
 
 func (s *Service) ResolveEmoji(ctx context.Context, title string) (string, bool) {
 	title = strings.TrimSpace(title)

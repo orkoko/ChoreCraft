@@ -17,65 +17,7 @@ function getApiBase() {
 function getRelevantEmoji(title) {
   if (!title) return "📋";
   const lower = title.toLowerCase();
-  
-  // 🐈 Cat
-  if (lower.includes("cat") || lower.includes("חתול")) return "🐈";
 
-  // 🐕 Dog
-  if (lower.includes("dog") || lower.includes("כלב")) return "🐕";
-
-  // 🐾 Pet / Feed / Animal
-  if (lower.includes("pet") || lower.includes("feed") ||
-      lower.includes("להאכיל") || lower.includes("חיה")) return "🐾";
-      
-  // 🍽️ Dishes / Kitchen / Cooking
-  if (lower.includes("dish") || lower.includes("plate") || lower.includes("kitchen") || lower.includes("cook") || 
-      lower.includes("כלים") || lower.includes("צלחת") || lower.includes("מטבח") || lower.includes("לבשל") || lower.includes("אוכל")) return "🍽️";
-      
-  // 🛏️ Bed / Bedroom / Sheets
-  if (lower.includes("bed") || lower.includes("room") || lower.includes("sheet") ||
-      lower.includes("מיטה") || lower.includes("חדר") || lower.includes("סדין")) return "🛏️";
-      
-  // 🗑️ Trash / Garbage / Dump
-  if (lower.includes("trash") || lower.includes("garbage") || lower.includes("bin") || lower.includes("waste") ||
-      lower.includes("זבל") || lower.includes("פח") || lower.includes("לזרוק")) return "🗑️";
-      
-  // 👕 Clothes / Laundry
-  if (lower.includes("clothe") || lower.includes("laundry") || lower.includes("fold") || lower.includes("wash") ||
-      lower.includes("בגד") || lower.includes("כביסה") || lower.includes("לקפל")) return "👕";
-      
-  // 🛒 Shopping / Buy
-  if (lower.includes("buy") || lower.includes("shop") || lower.includes("grocery") || lower.includes("market") ||
-      lower.includes("לקנות") || lower.includes("קניות") || lower.includes("סופר") || lower.includes("מכולת")) return "🛒";
-      
-  // 🌱 Garden / Plants
-  if (lower.includes("garden") || lower.includes("plant") || lower.includes("water") || lower.includes("grass") ||
-      lower.includes("גינה") || lower.includes("עציץ") || lower.includes("להשקות") || lower.includes("דשא") || lower.includes("חצר")) return "🌱";
-      
-  // 🧸 Toys / Organize
-  if (lower.includes("toy") || lower.includes("tidy") || lower.includes("organize") || lower.includes("play") ||
-      lower.includes("צעצוע") || lower.includes("לסדר") || lower.includes("לשחק") || lower.includes("ארון")) return "🧸";
-      
-  // 🚗 Car / Vehicle
-  if (lower.includes("car") || lower.includes("drive") ||
-      lower.includes("אוטו") || lower.includes("רכב")) return "🚗";
-      
-  // 🧹 Sweep / Vacuum / Clean / Floor
-  if (lower.includes("dust") || lower.includes("sweep") || lower.includes("vacuum") || lower.includes("floor") || lower.includes("mop") || lower.includes("clean") ||
-      lower.includes("לטאטא") || lower.includes("לשאוב") || lower.includes("רצפה") || lower.includes("ספונג") || lower.includes("לנקות") || lower.includes("אבק")) return "🧹";
-      
-  // 💻 Computer / Laptop / Screen
-  if (lower.includes("computer") || lower.includes("laptop") || lower.includes("screen") ||
-      lower.includes("מחשב") || lower.includes("מסך")) return "💻";
-      
-  // 📚 Study / Homework
-  if (lower.includes("study") || lower.includes("homework") || lower.includes("school") || lower.includes("learn") ||
-      lower.includes("שיעור") || lower.includes("ללמוד") || lower.includes("ספר") || lower.includes("מבחן")) return "📚";
-      
-  // 🧼 Shower / Soap / Teeth / Brush
-  if (lower.includes("teeth") || lower.includes("brush") || lower.includes("shower") || lower.includes("bath") ||
-      lower.includes("שיניים") || lower.includes("לצחצח") || lower.includes("מקלחת") || lower.includes("סבון")) return "🧼";
-      
   return "📋";
 }
 
@@ -203,6 +145,14 @@ document.addEventListener("DOMContentLoaded", async () => {
         localStorage.removeItem("chorecraft_session");
         showSection("landing-page");
       } else {
+        if (resp.ok) {
+          try {
+            const statsData = await resp.json();
+            syncSessionFromStats(statsData);
+          } catch (e) {
+            console.error("Failed to parse initial statistics:", e);
+          }
+        }
         connectSSE();
         restoreSessionView();
       }
@@ -260,18 +210,12 @@ function openAuthModal(initialTab = "login") {
 function toggleAuthForm(state) {
   const signupForm = document.getElementById("parent-signup-form");
   const loginForm = document.getElementById("parent-login-form");
-  const lookupForm = document.getElementById("kid-pin-lookup-form");
-  const avatarForm = document.getElementById("kid-pin-avatar-form");
-  const padForm = document.getElementById("kid-pin-pad-form");
   
-  const forms = [signupForm, loginForm, lookupForm, avatarForm, padForm];
+  const forms = [signupForm, loginForm];
   forms.forEach(f => { if (f) f.style.display = "none"; });
   
   if (state === "signup" && signupForm) signupForm.style.display = "block";
   if (state === "login" && loginForm) loginForm.style.display = "block";
-  if (state === "pin-lookup" && lookupForm) lookupForm.style.display = "block";
-  if (state === "pin-avatar" && avatarForm) avatarForm.style.display = "block";
-  if (state === "pin-pad" && padForm) padForm.style.display = "block";
 }
 
 function closeModal(modalId) {
@@ -364,7 +308,15 @@ async function apiCall(endpoint, method = "GET", body = null) {
       throw new Error(errorText || `API Error: ${response.status}`);
     }
     
-    return await response.json();
+    const data = await response.json();
+    if (endpoint.endsWith("/statistics") && data && data.users) {
+      try {
+        syncSessionFromStats(data);
+      } catch (e) {
+        console.error("Failed to sync session from stats:", e);
+      }
+    }
+    return data;
   } catch (err) {
     console.error(`Network call to ${endpoint} failed:`, err);
     showToast(`⚠️ Could not connect to backend at ${apiBase}`);
@@ -480,32 +432,97 @@ function logout() {
   showToast("Logged out successfully.");
 }
 
+function syncSessionFromStats(statsData) {
+  if (!currentSession || !statsData || !statsData.users) return;
+  const me = statsData.users.find(u => u.id === currentSession.user_id);
+  if (me) {
+    currentSession.notifications_viewed = me.notifications_viewed;
+    localStorage.setItem("chorecraft_session", JSON.stringify(currentSession));
+    
+    // Check if we need to hide the badge
+    if (currentSession.notifications_viewed) {
+      const badge = document.getElementById('notification-badge');
+      if (badge) {
+        badge.style.display = 'none';
+      }
+    }
+  }
+}
+
+window.shouldShowNotificationBadge = () => {
+  return currentSession && !currentSession.notifications_viewed;
+};
+
+window.markNotificationsRead = async () => {
+  if (!currentSession) return;
+  
+  // Hide the badge locally
+  const badge = document.getElementById('notification-badge');
+  if (badge) {
+    badge.style.display = 'none';
+  }
+  
+  // Update current session
+  currentSession.notifications_viewed = true;
+  localStorage.setItem("chorecraft_session", JSON.stringify(currentSession));
+  
+  try {
+    await apiCall(`/choregroups/${currentSession.choregroup_id}/notifications/view`, "POST");
+  } catch (err) {
+    console.error("Failed to sync notification read state:", err);
+  }
+};
+
 function updateHeaderAuthBtn() {
   const container = document.getElementById("auth-status-container");
   if (!container) return;
   
   const headerStats = document.getElementById("header-user-stats");
+  const notificationCenter = document.getElementById("header-notification-center");
   
   if (currentSession) {
+    if (notificationCenter) {
+      notificationCenter.style.display = "inline-block";
+    }
     const isKid = currentSession.role === "user";
     if (isKid) {
       if (headerStats) {
         headerStats.innerHTML = `<strong>${escapeHTML(currentSession.username)}</strong> (<strong>${currentSession.points || 0}</strong> <span class="points-coin">🐱</span> | <strong>${currentSession.cooperative_points || 0}</strong> <span class="points-coin coop-theme">🐱🐱</span>)`;
         headerStats.style.display = "flex";
       }
-      container.innerHTML = `
-        <button class="btn btn-outline btn-sm" onclick="logout()">Logout</button>
-      `;
     } else {
       if (headerStats) {
         headerStats.style.display = "none";
       }
-      container.innerHTML = `
-        <span class="user-greeting">👋 Hi, <strong>${escapeHTML(currentSession.username)}</strong> (Parent)</span>
-        <button class="btn btn-outline btn-sm" onclick="logout()">Logout</button>
-      `;
     }
+    container.innerHTML = `
+      <div class="user-dropdown-container" id="header-user-dropdown-container">
+        <button class="btn btn-outline btn-sm btn-user-trigger" id="user-trigger-btn" onclick="toggleUserDropdown(event)">
+          <strong>${escapeHTML(currentSession.username)}</strong>
+          <svg class="chevron-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-left: 4px; vertical-align: middle;">
+            <polyline points="6 9 12 15 18 9"></polyline>
+          </svg>
+        </button>
+        <div class="user-dropdown-menu" id="user-dropdown-menu">
+          <div class="user-dropdown-info">
+            <strong>${escapeHTML(currentSession.username)}</strong>
+            <span class="user-role-badge">${currentSession.role === "admin" ? "Parent" : "Kid"}</span>
+          </div>
+          <button class="dropdown-logout-btn" onclick="logout()">
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-right: 8px; stroke: var(--destructive-red);">
+              <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"></path>
+              <polyline points="16 17 21 12 16 7"></polyline>
+              <line x1="21" y1="12" x2="9" y2="12"></line>
+            </svg>
+            Log Out
+          </button>
+        </div>
+      </div>
+    `;
   } else {
+    if (notificationCenter) {
+      notificationCenter.style.display = "none";
+    }
     if (headerStats) {
       headerStats.style.display = "none";
     }
@@ -681,8 +698,12 @@ async function renderParentDashboard() {
   const membersList = document.getElementById("parent-members-list");
   membersList.innerHTML = "";
   
-  // Sort family members: admins always go first, followed by kids alphabetically
+  // Sort family members: logged-in user first, followed by other admins, then kids alphabetically
   const sortedMembers = [...familyMembers].sort((a, b) => {
+    const isMeA = currentSession && a.id === currentSession.user_id;
+    const isMeB = currentSession && b.id === currentSession.user_id;
+    if (isMeA) return -1;
+    if (isMeB) return 1;
     if (a.role === "admin" && b.role !== "admin") return -1;
     if (a.role !== "admin" && b.role === "admin") return 1;
     return a.username.localeCompare(b.username);
@@ -697,8 +718,8 @@ async function renderParentDashboard() {
       : `<span class="member-avatar">👤</span>`;
       
     let actionBtnHtml = "";
-    if (m.role === "user") {
-      actionBtnHtml = `<button class="btn btn-primary btn-xs" onclick="generateKidAccessLink('${m.id}')" style="margin-left: auto; font-size: 0.75rem; padding: 0.25rem 0.5rem;">🔗 Link</button>`;
+    if (!isMe) {
+      actionBtnHtml = `<button class="btn btn-primary btn-xs" onclick="generateKidAccessLink('${m.id}', '${escapeHTML(m.username)}', '${m.role}')" style="margin-left: auto; font-size: 0.75rem; padding: 0.25rem 0.5rem;">🔗 Link</button>`;
     }
       
     item.innerHTML = `
@@ -917,20 +938,26 @@ async function handleAddUserSubmit(e) {
   
   try {
     // POST /users (AddUserRequest)
-    await apiCall("/users", "POST", {
+    const newUser = await apiCall("/users", "POST", {
       choregroup_name: groupName,
       password: password,
       user_role: role,
       username: name
     });
     showToast(`User ${name} added successfully!`);
+    closeModal("add-user-modal");
+    renderParentDashboard();
+    updateLeaderboards();
+
+    if (newUser && newUser.id) {
+      await generateKidAccessLink(newUser.id, newUser.username, newUser.role);
+    }
   } catch (err) {
     alert("Failed to add member: " + err.message);
+    closeModal("add-user-modal");
+    renderParentDashboard();
+    updateLeaderboards();
   }
-  
-  closeModal("add-user-modal");
-  renderParentDashboard();
-  updateLeaderboards();
 }
 
 /* ==========================================================
@@ -1206,35 +1233,20 @@ async function updateLeaderboards() {
     ? Math.round((completedCount / totalTasksCount) * 100) 
     : 0;
 
-  // Breakdown progress bars
-  let maxCoins = Math.max(...sortedKids.map(k => k.points), 1);
-  let breakdownHtml = sortedKids.map(kid => {
-    const pct = Math.round((kid.points / maxCoins) * 100);
-    return `
-      <div class="stats-progress-row">
-        <span class="progress-name">${kid.username}</span>
-        <div class="progress-bar-container">
-          <div class="progress-bar-fill" style="width: ${pct}%"></div>
-        </div>
-        <span class="progress-value">${kid.points} <span class="points-coin">🐱</span></span>
-      </div>
-    `;
-  }).join("");
-  
-  if (breakdownHtml === "") {
-    breakdownHtml = `<p class="text-muted" style="font-size: 0.85rem; text-align: center; margin: 0;">No kids registered yet.</p>`;
-  }
+  const kidsCoinsHtml = sortedKids.map(k => `
+    <div class="stats-metric" style="margin-top: 0.5rem; border-top: 1px dashed var(--border-color); padding-top: 0.5rem;">
+      <span class="stats-label" style="font-weight: normal; color: var(--text-muted);">${escapeHTML(k.username)}'s Coins:</span>
+      <span class="stats-value" style="font-size: 1rem;">${k.points} <span class="points-coin">🐱</span></span>
+    </div>
+  `).join("");
 
   const statsHtml = `
     <div class="stats-container">
       <div class="stats-metric">
-        <span class="stats-label"><span class="points-coin coop-theme">🐱🐱</span> Cooperative Coins:</span>
+        <span class="stats-label">Cooperative Coins:</span>
         <span class="stats-value">${cooperativeCoins} <span class="points-coin coop-theme">🐱🐱</span></span>
       </div>
-      <div class="stats-contributions">
-        <h4>Coins Breakdown:</h4>
-        ${breakdownHtml}
-      </div>
+      ${kidsCoinsHtml}
     </div>
   `;
 
@@ -2056,119 +2068,63 @@ async function handleExtendTask(taskId) {
 }
 
 /* ==========================================================
-   KID PIN & DELEGATED AUTHENTICATION LOGIC
+   KID DELEGATED AUTHENTICATION LOGIC
    ========================================================== */
 
-let pinLoginChoreGroupID = null;
-let pinLoginUserID = null;
-let pinLoginUsername = null;
-let pinLoginAccumulated = "";
-
-async function handleFindHousehold(e) {
-  e.preventDefault();
-  const familyName = document.getElementById("pin-lookup-family-name").value.trim();
-  if (!familyName) return;
-  
-  try {
-    const data = await apiCall(`/choregroups/lookup?name=${encodeURIComponent(familyName)}`);
-    pinLoginChoreGroupID = data.id;
-    
-    const avatarList = document.getElementById("kid-avatar-list");
-    avatarList.innerHTML = "";
-    
-    if (!data.members || data.members.length === 0) {
-      avatarList.innerHTML = `<p style="grid-column: span 3; text-align: center; color: var(--text-muted);">No kid profiles found. Ask a parent to add you!</p>`;
-    } else {
-      const emojis = ["🐱", "🐶", "🦁", "🐰", "🐼", "🦊", "🐨", "🐸", "🐵"];
-      data.members.forEach((kid, idx) => {
-        const emoji = emojis[idx % emojis.length];
-        const div = document.createElement("div");
-        div.className = "avatar-item";
-        div.style = "display: flex; flex-direction: column; align-items: center; cursor: pointer; padding: 0.5rem; border-radius: 8px; border: 2px solid transparent; transition: all 0.2s;";
-        div.innerHTML = `
-          <div style="font-size: 3rem; background: var(--bg-card); width: 80px; height: 80px; display: flex; align-items: center; justify-content: center; border-radius: 50%; border: 3px solid var(--primary); margin-bottom: 0.5rem; transition: transform 0.2s;">${emoji}</div>
-          <span style="font-weight: 800; color: var(--text-main); font-size: 1.05rem;">${kid.username}</span>
-        `;
-        div.addEventListener("mouseenter", () => {
-          div.querySelector("div").style.transform = "scale(1.1)";
-        });
-        div.addEventListener("mouseleave", () => {
-          div.querySelector("div").style.transform = "scale(1)";
-        });
-        div.addEventListener("click", () => {
-          selectKidForPinEntry(kid.id, kid.username);
-        });
-        avatarList.appendChild(div);
-      });
-    }
-    
-    toggleAuthForm("pin-avatar");
-  } catch (err) {
-    alert("Family not found! Check spelling and try again.");
-  }
-}
-
-function selectKidForPinEntry(userID, username) {
-  pinLoginUserID = userID;
-  pinLoginUsername = username;
-  pinLoginAccumulated = "";
-  document.getElementById("pin-input-field").value = "";
-  document.getElementById("pin-entry-title").innerText = `PIN for ${username}`;
-  toggleAuthForm("pin-pad");
-}
-
-function pressPinNumber(num) {
-  if (pinLoginAccumulated.length < 4) {
-    pinLoginAccumulated += num;
-    document.getElementById("pin-input-field").value = "•".repeat(pinLoginAccumulated.length);
-  }
-}
-
-function clearPinNumber() {
-  pinLoginAccumulated = "";
-  document.getElementById("pin-input-field").value = "";
-}
-
-function goBackToAvatars() {
-  toggleAuthForm("pin-avatar");
-}
-
-async function submitPinLogin() {
-  if (pinLoginAccumulated.length < 4) {
-    alert("Please enter a 4-digit PIN!");
-    return;
-  }
-  
-  try {
-    const res = await apiCall("/login/pin", "POST", {
-      user_id: pinLoginUserID,
-      pin: pinLoginAccumulated
-    });
-    
-    setSession({
-      id: res.user_id,
-      username: pinLoginUsername,
-      role: res.role,
-      choregroup_id: res.choregroup_id,
-      choregroup_name: "Kid Space"
-    });
-    closeModal("auth-modal");
-    showToast(`Welcome ${pinLoginUsername}!`);
-  } catch (err) {
-    alert("Incorrect PIN! Try again.");
-    clearPinNumber();
-  }
-}
-
-async function generateKidAccessLink(userID) {
+async function generateKidAccessLink(userID, username = "", role = "user") {
   try {
     const groupId = currentSession.choregroup_id;
     const res = await apiCall(`/choregroups/${groupId}/members/${userID}/login-link`, "POST");
-    const link = `${window.location.origin}${window.location.pathname}?login_token=${res.token}`;
+    const longLink = `${window.location.origin}${window.location.pathname}?login_token=${res.token}`;
 
-    document.getElementById("generated-login-link-input").value = link;
-    const modal = document.getElementById("login-link-modal");
-    if (modal) modal.classList.add("active");
+    const displayUsername = username || "Family Member";
+
+    // Attempt to shorten the login link using TinyURL
+    let link = longLink;
+    try {
+      const response = await fetch(`https://tinyurl.com/api-create.php?url=${encodeURIComponent(longLink)}`);
+      if (response.ok) {
+        const short = await response.text();
+        if (short && short.startsWith("http")) {
+          link = short;
+        }
+      }
+    } catch (e) {
+      console.warn("Could not shorten link, using long link:", e);
+    }
+
+    const shareTitle = "ChoreCraft Login Link";
+    const shareText = role === "admin"
+      ? `Log in to ChoreCraft as ${displayUsername}:`
+      : `Log in to ChoreCraft:`;
+
+    // Try native share on mobile
+    if (navigator.share) {
+      try {
+        await navigator.share({
+          title: shareTitle,
+          text: shareText,
+          url: link
+        });
+        showToast("Shared successfully! 🚀");
+        return;
+      } catch (err) {
+        if (err.name === "AbortError") {
+          return;
+        }
+        console.error("Web Share failed:", err);
+      }
+    }
+
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      await navigator.clipboard.writeText(link).catch(() => {
+        copyToClipboardFallback(link);
+      });
+    } else {
+      copyToClipboardFallback(link);
+    }
+
+    showToast(`🔗 Login link for ${displayUsername} copied to clipboard!`);
   } catch (err) {
     alert("Failed to generate access link: " + err.message);
   }
@@ -2240,10 +2196,10 @@ async function handleDelegatedLogin(token) {
     const res = await apiCall("/login/delegated", "POST", { token: token });
     setSession({
       id: res.user_id,
-      username: res.username || "Kid Space",
+      username: res.username || (res.role === "admin" ? "Parent Space" : "Kid Space"),
       role: res.role,
       choregroup_id: res.choregroup_id,
-      choregroup_name: "Kid Space"
+      choregroup_name: res.role === "admin" ? "My Household" : "Kid Space"
     });
     showToast("🔑 Logged in automatically!");
   } catch (err) {

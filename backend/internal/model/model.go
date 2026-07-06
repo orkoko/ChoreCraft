@@ -18,12 +18,13 @@ type ChoreGroup struct {
 
 // User represents the users table.
 type User struct {
-	ID            uuid.UUID `json:"id"`
-	ChoreGroupID  uuid.UUID `json:"choregroup_id"`
-	Username      string    `json:"username"`
-	PasswordHash  string    `json:"-"`
-	Role          string    `json:"role"`
-	Points        int       `json:"points"`
+	ID                  uuid.UUID `json:"id"`
+	ChoreGroupID        uuid.UUID `json:"choregroup_id"`
+	Username            string    `json:"username"`
+	PasswordHash        string    `json:"-"`
+	Role                string    `json:"role"`
+	Points              int       `json:"points"`
+	NotificationsViewed bool      `json:"notifications_viewed"`
 }
 
 // Task represents the tasks table.
