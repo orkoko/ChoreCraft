@@ -11,6 +11,7 @@ import (
 	"github.com/google/uuid"
 	"golang.org/x/crypto/bcrypt"
 	"github.com/google/generative-ai-go/genai"
+	webpush "github.com/SherClockHolmes/webpush-go"
 	"google.golang.org/api/option"
 
 	"ChoreCraft/internal/model"
@@ -26,13 +27,22 @@ var ErrAlreadyVoted = errors.New("user has already voted on this purchase")
 
 // Service holds the dependencies for the service layer.
 type Service struct {
-	repo         *repository.Repository
-	geminiAPIKey string
+	repo            *repository.Repository
+	geminiAPIKey    string
+	vapidPublicKey  string
+	vapidPrivateKey string
+	vapidContact    string
 }
 
 // New creates a new Service instance.
-func New(repo *repository.Repository, geminiAPIKey string) *Service {
-	return &Service{repo: repo, geminiAPIKey: geminiAPIKey}
+func New(repo *repository.Repository, geminiAPIKey, vapidPublicKey, vapidPrivateKey, vapidContact string) *Service {
+	return &Service{
+		repo:            repo,
+		geminiAPIKey:    geminiAPIKey,
+		vapidPublicKey:  vapidPublicKey,
+		vapidPrivateKey: vapidPrivateKey,
+		vapidContact:    vapidContact,
+	}
 }
 
 // hashPassword generates a bcrypt hash of the password.
@@ -90,11 +100,16 @@ func (s *Service) Login(ctx context.Context, choregroupName, username, password 
 	if !checkPasswordHash(password, user.PasswordHash) {
 		return model.LoginResponse{}, ErrInvalidCredentials
 	}
+	group, err := s.repo.GetChoreGroupByID(ctx, user.ChoreGroupID)
+	if err != nil {
+		return model.LoginResponse{}, ErrInvalidCredentials
+	}
 	return model.LoginResponse{
-		UserID:       user.ID,
-		Username:     user.Username,
-		ChoreGroupID: user.ChoreGroupID,
-		Role:         user.Role,
+		UserID:         user.ID,
+		Username:       user.Username,
+		ChoreGroupID:   user.ChoreGroupID,
+		ChoreGroupName: group.Name,
+		Role:           user.Role,
 	}, nil
 }
 
@@ -102,6 +117,12 @@ func (s *Service) Login(ctx context.Context, choregroupName, username, password 
 func (s *Service) GetUserByID(ctx context.Context, userID uuid.UUID) (model.User, error) {
 	return s.repo.GetUserByID(ctx, userID)
 }
+
+// GetChoreGroupByID retrieves a choregroup by its ID.
+func (s *Service) GetChoreGroupByID(ctx context.Context, choregroupID uuid.UUID) (model.ChoreGroup, error) {
+	return s.repo.GetChoreGroupByID(ctx, choregroupID)
+}
+
 
 // MarkNotificationsViewed updates notifications_viewed state.
 func (s *Service) MarkNotificationsViewed(ctx context.Context, userID uuid.UUID) error {
@@ -130,6 +151,33 @@ func (s *Service) DeleteUser(ctx context.Context, adminUser model.User, userIDTo
 
 	return s.repo.DeleteUser(ctx, userIDToDelete, adminUser.ChoreGroupID)
 }
+
+// UpdateUserPassword hashes a user's password and updates it.
+func (s *Service) UpdateUserPassword(ctx context.Context, loggedInUser model.User, targetUserID uuid.UUID, newPassword string) error {
+	isSelf := loggedInUser.ID == targetUserID
+	isAdmin := loggedInUser.Role == "admin"
+
+	if !isSelf && !isAdmin {
+		return ErrForbidden
+	}
+
+	targetUser, err := s.repo.GetUserByID(ctx, targetUserID)
+	if err != nil {
+		return err
+	}
+
+	if targetUser.ChoreGroupID != loggedInUser.ChoreGroupID {
+		return ErrForbidden
+	}
+
+	passwordHash, err := hashPassword(newPassword)
+	if err != nil {
+		return err
+	}
+
+	return s.repo.UpdateUserPassword(ctx, targetUserID, loggedInUser.ChoreGroupID, passwordHash)
+}
+
 
 // CreateTask creates a new task from a DTO.
 func (s *Service) CreateTask(ctx context.Context, choregroupID uuid.UUID, req model.CreateTaskRequest, onResolved func()) (*model.Task, error) {
@@ -681,4 +729,55 @@ func (s *Service) ResolveEmojiAsync(ctx context.Context, title string) string {
 	}
 
 	return title
+}
+
+// SavePushSubscription saves a user's web push subscription.
+func (s *Service) SavePushSubscription(ctx context.Context, userID uuid.UUID, endpoint, p256dh, auth string) error {
+	return s.repo.SavePushSubscription(ctx, userID, endpoint, p256dh, auth)
+}
+
+// SendPushToKids sends a web push notification to all kid devices in a choregroup.
+func (s *Service) SendPushToKids(ctx context.Context, choregroupID uuid.UUID, title, body string) {
+	if s.vapidPublicKey == "" || s.vapidPrivateKey == "" {
+		slog.Warn("VAPID keys not configured, skipping push notifications")
+		return
+	}
+
+	subs, err := s.repo.GetPushSubscriptionsByChoreGroup(ctx, choregroupID)
+	if err != nil {
+		slog.Error("failed to get push subscriptions", "error", err)
+		return
+	}
+
+	payload, _ := json.Marshal(map[string]string{
+		"title": title,
+		"body":  body,
+	})
+
+	for _, sub := range subs {
+		go func(sub model.PushSubscription) {
+			resp, err := webpush.SendNotification(payload, &webpush.Subscription{
+				Endpoint: sub.Endpoint,
+				Keys: webpush.Keys{
+					P256dh: sub.P256dh,
+					Auth:   sub.Auth,
+				},
+			}, &webpush.Options{
+				Subscriber:      s.vapidContact,
+				VAPIDPublicKey:  s.vapidPublicKey,
+				VAPIDPrivateKey: s.vapidPrivateKey,
+				TTL:             60,
+			})
+			if err != nil {
+				slog.Error("failed to send push notification", "endpoint", sub.Endpoint, "error", err)
+				// Remove stale/expired subscriptions (410 Gone or 404)
+				if resp != nil && (resp.StatusCode == 410 || resp.StatusCode == 404) {
+					_ = s.repo.DeletePushSubscription(ctx, sub.Endpoint)
+				}
+				return
+			}
+			defer resp.Body.Close()
+			slog.Info("push notification sent", "endpoint", sub.Endpoint[:40]+"...", "status", resp.StatusCode)
+		}(sub)
+	}
 }

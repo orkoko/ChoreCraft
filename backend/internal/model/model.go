@@ -79,6 +79,12 @@ type SignUpRequest struct {
 	Password       string `json:"password"`
 }
 
+// UpdatePasswordRequest defines the body for changing a user's password.
+type UpdatePasswordRequest struct {
+	Password string `json:"password"`
+}
+
+
 // AddUserRequest defines the body for adding a new user to an existing choregroup.
 type AddUserRequest struct {
 	ChoreGroupName string `json:"choregroup_name"`
@@ -107,10 +113,11 @@ type DelegatedLoginRequest struct {
 
 // LoginResponse defines the data returned upon successful login.
 type LoginResponse struct {
-	UserID       uuid.UUID `json:"user_id"`
-	Username     string    `json:"username"`
-	ChoreGroupID uuid.UUID `json:"choregroup_id"`
-	Role         string    `json:"role"`
+	UserID         uuid.UUID `json:"user_id"`
+	Username       string    `json:"username"`
+	ChoreGroupID   uuid.UUID `json:"choregroup_id"`
+	ChoreGroupName string    `json:"choregroup_name"`
+	Role           string    `json:"role"`
 }
 
 // CreateTaskRequest defines the body for creating a new task.
@@ -166,4 +173,23 @@ type CreateApprovalRequest struct {
 // UpdatePurchaseStatusRequest defines the body for updating a purchase status.
 type UpdatePurchaseStatusRequest struct {
 	Status string `json:"status"` // "fulfilled"
+}
+
+// PushSubscription represents a web push subscription stored in the database.
+type PushSubscription struct {
+	ID        uuid.UUID `json:"id"`
+	UserID    uuid.UUID `json:"user_id"`
+	Endpoint  string    `json:"endpoint"`
+	P256dh    string    `json:"p256dh"`
+	Auth      string    `json:"auth"`
+	CreatedAt time.Time `json:"created_at"`
+}
+
+// PushSubscribeRequest defines the body for subscribing to web push notifications.
+type PushSubscribeRequest struct {
+	Endpoint string `json:"endpoint"`
+	Keys     struct {
+		P256dh string `json:"p256dh"`
+		Auth   string `json:"auth"`
+	} `json:"keys"`
 }

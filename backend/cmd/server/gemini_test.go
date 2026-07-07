@@ -22,7 +22,7 @@ func TestGeminiIntegration(t *testing.T) {
 	}
 
 	repo := repository.New(testDbPool)
-	svc := service.New(repo, apiKey)
+	svc := service.New(repo, apiKey, "", "", "")
 
 	ctx := context.Background()
 

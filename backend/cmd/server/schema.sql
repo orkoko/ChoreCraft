@@ -80,4 +80,12 @@ ALTER TABLE users ADD CONSTRAINT users_choregroup_username_key UNIQUE (choregrou
 -- Migration to support user notifications read synchronization
 ALTER TABLE users ADD COLUMN IF NOT EXISTS notifications_viewed BOOLEAN NOT NULL DEFAULT FALSE;
 
-
+-- Web Push Notification subscriptions
+CREATE TABLE IF NOT EXISTS push_subscriptions (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    endpoint TEXT NOT NULL UNIQUE,
+    p256dh TEXT NOT NULL,
+    auth TEXT NOT NULL,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);

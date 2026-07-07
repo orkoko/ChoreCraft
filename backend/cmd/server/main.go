@@ -66,8 +66,8 @@ func main() {
 
 func setupRouter(dbpool *pgxpool.Pool, cfg *config.Config) *chi.Mux {
 	repo := repository.New(dbpool)
-	svc := service.New(repo, cfg.GeminiAPIKey)
-	api := handler.New(svc, cfg.JWTSecret)
+	svc := service.New(repo, cfg.GeminiAPIKey, cfg.VAPIDPublicKey, cfg.VAPIDPrivateKey, cfg.VAPIDContact)
+	api := handler.New(svc, cfg.JWTSecret, cfg.VAPIDPublicKey)
 
 	r := chi.NewRouter()
 	api.RegisterRoutes(r)

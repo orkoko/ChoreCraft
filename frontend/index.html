@@ -99,6 +99,21 @@
     <section id="parent-view" class="view-section">
       <div class="dashboard-container">
 
+        <!-- PUSH NOTIFICATION BANNER -->
+        <div class="push-notification-banner" id="push-banner-parent" style="display: none; background: linear-gradient(135deg, var(--primary), var(--primary-hover)); color: white; border-radius: var(--radius-md); padding: 1rem; margin-bottom: 1.5rem; justify-content: space-between; align-items: center; box-shadow: var(--shadow-sm); gap: 1rem;">
+          <div style="display: flex; align-items: center; gap: 0.75rem; text-align: left;">
+            <span style="font-size: 1.5rem;">🔔</span>
+            <div>
+              <h4 style="margin: 0; font-size: 0.95rem; font-weight: 600; color: white;">Enable Push Notifications</h4>
+              <p style="margin: 0; font-size: 0.8rem; opacity: 0.9; color: white;">Get alerted when new chores are waiting or ready for approval!</p>
+            </div>
+          </div>
+          <div style="display: flex; gap: 0.5rem; align-items: center;">
+            <button class="btn btn-sm" onclick="enablePushNotificationsClicked()" style="background: white; color: var(--primary); border: none; font-weight: 600; padding: 0.4rem 1rem; border-radius: 6px; cursor: pointer; font-size: 0.8rem; box-shadow: 0 2px 4px rgba(0,0,0,0.1);">Enable</button>
+            <button onclick="dismissPushBanner()" style="background: none; border: none; color: white; opacity: 0.7; font-size: 1.25rem; cursor: pointer; padding: 0.25rem;">×</button>
+          </div>
+        </div>
+
         <div class="dashboard-nav-tabs">
           <button id="parent-tab-chores" class="dash-tab active" onclick="switchParentTab('chores')">📋 Chores</button>
           <button id="parent-tab-rewards" class="dash-tab" onclick="switchParentTab('rewards')">🎁 Rewards</button>
@@ -121,6 +136,7 @@
               <div class="section-title-row" style="justify-content: center;">
                 <h3 style="display: none;">📋 Active Chores</h3>
                 <button class="btn btn-primary btn-sm" onclick="openAddChoreModal()"><span class="btn-plus-icon">+</span> Add Chore</button>
+                <button class="btn btn-outline btn-sm" onclick="notifyKidsOfNewTasks()" style="margin-left: 0.5rem;">🔔 Notify Kids</button>
               </div>
               <div class="chores-grid" id="parent-chores-list">
                 <!-- Dynamically populated with Edit/Delete capabilities -->
@@ -143,6 +159,17 @@
                 </div>
                 <button class="btn btn-outline btn-block btn-sm" onclick="openAddUserModal()"><span class="btn-plus-icon">+</span> Add Family Member</button>
               </div>
+            </div>
+
+            <!-- SHARE APP WITH FRIEND -->
+            <div class="share-app-block" style="margin-top: 1.5rem; background-color: var(--bg-card); border-radius: var(--radius-lg); padding: 1.5rem; border: 1px solid var(--border-color); display: flex; flex-direction: column; gap: 1rem; align-items: center; text-align: center; box-shadow: var(--shadow-sm);">
+              <img src="icon.svg" alt="ChoreCraft Icon" style="width: 48px; height: 48px; margin-bottom: 0.25rem;">
+              <div style="display: flex; flex-direction: column; gap: 0.25rem;">
+                <p style="margin: 0; font-size: 0.85rem; color: var(--text-muted); max-width: 450px;">Enjoying ChoreCraft? Share the application with a friend to help them streamline household chores and reward management.</p>
+              </div>
+              <button class="btn btn-primary btn-sm" onclick="shareAppWithFriend()" style="display: inline-flex; align-items: center; gap: 0.5rem; width: auto; padding: 0.5rem 1.5rem;">
+                <span>🔗</span> Share ChoreCraft
+              </button>
             </div>
 
           </div>
@@ -186,6 +213,21 @@
     <!-- 3. KID WORKSPACE VIEW -->
     <section id="kid-view" class="view-section">
       <div class="dashboard-container">
+
+        <!-- PUSH NOTIFICATION BANNER -->
+        <div class="push-notification-banner" id="push-banner-kid" style="display: none; background: linear-gradient(135deg, var(--primary), var(--primary-hover)); color: white; border-radius: var(--radius-md); padding: 1rem; margin-bottom: 1.5rem; justify-content: space-between; align-items: center; box-shadow: var(--shadow-sm); gap: 1rem;">
+          <div style="display: flex; align-items: center; gap: 0.75rem; text-align: left;">
+            <span style="font-size: 1.5rem;">🔔</span>
+            <div>
+              <h4 style="margin: 0; font-size: 0.95rem; font-weight: 600; color: white;">Enable Push Notifications</h4>
+              <p style="margin: 0; font-size: 0.8rem; opacity: 0.9; color: white;">Get alerted on your phone when new chores are waiting or approved!</p>
+            </div>
+          </div>
+          <div style="display: flex; gap: 0.5rem; align-items: center;">
+            <button class="btn btn-sm" onclick="enablePushNotificationsClicked()" style="background: white; color: var(--primary); border: none; font-weight: 600; padding: 0.4rem 1rem; border-radius: 6px; cursor: pointer; font-size: 0.8rem; box-shadow: 0 2px 4px rgba(0,0,0,0.1);">Enable</button>
+            <button onclick="dismissPushBanner()" style="background: none; border: none; color: white; opacity: 0.7; font-size: 1.25rem; cursor: pointer; padding: 0.25rem;">×</button>
+          </div>
+        </div>
 
         <div class="dashboard-nav-tabs">
           <button id="kid-tab-chores" class="dash-tab active" onclick="switchKidTab('chores')">📋 Chores</button>
@@ -306,6 +348,23 @@
           Need to register a new family? <a href="#" onclick="toggleAuthForm('signup')">Sign Up here</a>.
         </div>
       </div>
+    </div>
+  </div>
+
+  <!-- CHANGE PASSWORD MODAL -->
+  <div class="modal-backdrop" id="change-password-modal">
+    <div class="modal-card">
+      <button class="modal-close-btn" onclick="closeModal('change-password-modal')">×</button>
+      <h3 id="change-password-modal-title">Change Password</h3>
+
+      <form onsubmit="handleSavePassword(event)">
+        <input type="hidden" id="change-password-target-id">
+        <div class="form-group">
+          <label for="change-password-input">New Password</label>
+          <input type="password" id="change-password-input" placeholder="Enter new password" required>
+        </div>
+        <button type="submit" class="btn btn-primary btn-block">Save Password 🚀</button>
+      </form>
     </div>
   </div>
 
@@ -471,9 +530,9 @@
   <div class="modal-backdrop" id="login-link-modal">
     <div class="modal-card">
       <button class="modal-close-btn" onclick="closeModal('login-link-modal')">×</button>
-      <h3 id="login-link-modal-title">Kid Access Link 🔗</h3>
+      <h3 id="login-link-modal-title">Share Profile 🚀</h3>
       <p id="login-link-modal-text" style="font-size: 0.95rem; color: var(--text-muted); margin-bottom: 1rem;">
-        Share this link to your child's device to log them in automatically. Valid for 5 minutes.
+        Share access to this profile. The login credentials will be applied automatically (valid for 5 minutes).
       </p>
       <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 1rem;">
         <input type="text" id="generated-login-link-input"

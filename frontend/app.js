@@ -155,6 +155,7 @@ document.addEventListener("DOMContentLoaded", async () => {
         }
         connectSSE();
         restoreSessionView();
+        registerPushNotifications();
       }
     } catch (err) {
       // Network error — server is down. Clear session and show landing page.
@@ -239,8 +240,23 @@ function connectSSE() {
   globalEventSource = new EventSource(url, { withCredentials: true });
   
   globalEventSource.onmessage = (event) => {
-    if (event.data === "refresh") {
-      console.log("SSE refresh event received. Reloading dashboards...");
+    if (event.data === "refresh" || event.data === "new_task") {
+      console.log(`SSE ${event.data} event received. Reloading dashboards...`);
+      
+      if (event.data === "new_task" && currentSession && currentSession.role === "user") {
+        if (window.Notification && Notification.permission === "granted") {
+          try {
+            new Notification("ChoreCraft", {
+              body: "🔔 New chores are waiting for you! ✨",
+              icon: "icon.svg"
+            });
+          } catch (e) {
+            console.warn("Failed to trigger Notification API:", e);
+          }
+        }
+        showToast("🔔 New chores have been added!");
+      }
+
       if (currentSession.role === "admin") {
         renderParentDashboard();
       } else {
@@ -402,6 +418,7 @@ function setSession(userObj) {
   restoreSessionView();
   updateHeaderAuthBtn();
   updateLeaderboards();
+  registerPushNotifications();
 }
 
 function restoreSessionView() {
@@ -418,6 +435,7 @@ function restoreSessionView() {
   
   // Restore tab from URL hash (preserves state across refreshes)
   navigateFromHash();
+  checkAndShowPushBanners();
 }
 
 function logout() {
@@ -429,6 +447,7 @@ function logout() {
   showSection("landing-page");
   updateHeaderAuthBtn();
   updateLeaderboards();
+  hidePushBanners();
   showToast("Logged out successfully.");
 }
 
@@ -487,7 +506,7 @@ function updateHeaderAuthBtn() {
     const isKid = currentSession.role === "user";
     if (isKid) {
       if (headerStats) {
-        headerStats.innerHTML = `<strong>${escapeHTML(currentSession.username)}</strong> (<strong>${currentSession.points || 0}</strong> <span class="points-coin">🐱</span> | <strong>${currentSession.cooperative_points || 0}</strong> <span class="points-coin coop-theme">🐱🐱</span>)`;
+        headerStats.innerHTML = `(<strong>${currentSession.points || 0}</strong> <span class="points-coin">🐱</span> | <strong>${currentSession.cooperative_points || 0}</strong> <span class="points-coin coop-theme">🐱🐱</span>)`;
         headerStats.style.display = "flex";
       }
     } else {
@@ -506,8 +525,15 @@ function updateHeaderAuthBtn() {
         <div class="user-dropdown-menu" id="user-dropdown-menu">
           <div class="user-dropdown-info">
             <strong>${escapeHTML(currentSession.username)}</strong>
-            <span class="user-role-badge">${currentSession.role === "admin" ? "Parent" : "Kid"}</span>
+            ${currentSession.role === "admin" ? '<span class="user-role-badge">Parent</span>' : ''}
           </div>
+          <button class="dropdown-action-btn" onclick="openChangePasswordModal('${currentSession.id || currentSession.user_id}', '${escapeHTML(currentSession.username)}')">
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-right: 8px; stroke: var(--primary-blue);">
+              <rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect>
+              <path d="M7 11V7a5 5 0 0 1 10 0v4"></path>
+            </svg>
+            Change Password
+          </button>
           <button class="dropdown-logout-btn" onclick="logout()">
             <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-right: 8px; stroke: var(--destructive-red);">
               <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"></path>
@@ -568,6 +594,19 @@ async function renderParentDashboard() {
         currentSession.username = me.username;
         localStorage.setItem("chorecraft_session", JSON.stringify(currentSession));
         updateHeaderAuthBtn();
+      }
+    }
+
+    // Self-healing: Update session if choregroup_name is generic/legacy (e.g. "My Household")
+    if (currentSession && (currentSession.choregroup_name === "My Household" || !currentSession.choregroup_name)) {
+      try {
+        const groupInfo = await apiCall(`/choregroups/${groupId}`);
+        if (groupInfo && groupInfo.name) {
+          currentSession.choregroup_name = groupInfo.name;
+          localStorage.setItem("chorecraft_session", JSON.stringify(currentSession));
+        }
+      } catch (err) {
+        console.warn("Could not self-heal choregroup name:", err);
       }
     }
   } catch (err) {
@@ -719,7 +758,13 @@ async function renderParentDashboard() {
       
     let actionBtnHtml = "";
     if (!isMe) {
-      actionBtnHtml = `<button class="btn btn-primary btn-xs" onclick="generateKidAccessLink('${m.id}', '${escapeHTML(m.username)}', '${m.role}')" style="margin-left: auto; font-size: 0.75rem; padding: 0.25rem 0.5rem;">🔗 Link</button>`;
+      actionBtnHtml = `
+        <div style="margin-left: auto; display: flex; gap: 0.5rem; align-items: center;">
+          <button class="btn btn-outline btn-xs" onclick="openChangePasswordModal('${m.id}', '${escapeHTML(m.username)}')" title="Change Password" style="font-size: 0.75rem; padding: 0.25rem 0.5rem;">🔑</button>
+          <button class="btn btn-primary btn-xs" onclick="generateKidAccessLink('${m.id}', '${escapeHTML(m.username)}', '${m.role}')" style="font-size: 0.75rem; padding: 0.25rem 0.5rem;" title="Share Login Link"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="18" cy="5" r="3" /><circle cx="6" cy="12" r="3" /><circle cx="18" cy="19" r="3" /><line x1="8.59" y1="13.51" x2="15.42" y2="17.49" /><line x1="15.41" y1="6.51" x2="8.59" y2="10.49" /></svg></button>
+          <button class="btn btn-outline btn-xs btn-delete" onclick="deleteFamilyMember('${m.id}', '${escapeHTML(m.username)}')" title="Remove Member" style="font-size: 0.75rem; padding: 0.25rem 0.5rem;">❌</button>
+        </div>
+      `;
     }
       
     item.innerHTML = `
@@ -917,8 +962,7 @@ async function deleteChore(taskId) {
 
 function openAddUserModal() {
   document.getElementById("new-member-name").value = "";
-  document.getElementById("new-member-pass").value = "family";
-  document.getElementById("new-member-groupname").value = (currentSession && currentSession.choregroup_name !== "My Household") ? currentSession.choregroup_name : "";
+  document.getElementById("new-member-pass").value = "";
   document.getElementById("new-member-role").value = "user";
   document.getElementById("add-user-modal").classList.add("active");
 }
@@ -957,6 +1001,69 @@ async function handleAddUserSubmit(e) {
     closeModal("add-user-modal");
     renderParentDashboard();
     updateLeaderboards();
+  }
+}
+
+async function deleteFamilyMember(userId, username) {
+  const confirmed = confirm(`Are you sure you want to remove ${username} from the family? This will permanently delete their account and all chore history.`);
+  if (!confirmed) return;
+
+  const groupId = currentSession?.choregroup_id;
+  if (!groupId) {
+    alert("Could not determine your household. Please log in again.");
+    return;
+  }
+
+  try {
+    await apiCall(`/choregroups/${groupId}/members/${userId}`, "DELETE");
+    showToast(`${username} removed successfully.`);
+    renderParentDashboard();
+    updateLeaderboards();
+  } catch (err) {
+    alert("Failed to remove member: " + err.message);
+  }
+}
+
+function openChangePasswordModal(userId, username) {
+  const modal = document.getElementById("change-password-modal");
+  const title = document.getElementById("change-password-modal-title");
+  const input = document.getElementById("change-password-input");
+  const targetId = document.getElementById("change-password-target-id");
+
+  if (!modal || !title || !input || !targetId) return;
+
+  targetId.value = userId;
+  input.value = "";
+
+  if (currentSession && (currentSession.id === userId || currentSession.user_id === userId)) {
+    title.textContent = "Change My Password";
+  } else {
+    title.textContent = `Change Password for ${username}`;
+  }
+
+  modal.classList.add("active");
+}
+
+async function handleSavePassword(e) {
+  e.preventDefault();
+
+  const userId = document.getElementById("change-password-target-id").value;
+  const password = document.getElementById("change-password-input").value;
+  const groupId = currentSession?.choregroup_id;
+
+  if (!userId || !password || !groupId) {
+    alert("Missing required data for changing password.");
+    return;
+  }
+
+  try {
+    await apiCall(`/choregroups/${groupId}/members/${userId}/password`, "PUT", {
+      password: password
+    });
+    showToast("Password updated successfully!");
+    closeModal("change-password-modal");
+  } catch (err) {
+    alert("Failed to update password: " + err.message);
   }
 }
 
@@ -2068,38 +2175,186 @@ async function handleExtendTask(taskId) {
 }
 
 /* ==========================================================
+   WEB PUSH NOTIFICATIONS
+   ========================================================== */
+
+async function registerPushNotifications() {
+  if (!currentSession || !currentSession.choregroup_id) return;
+  if (!('serviceWorker' in navigator) || !('PushManager' in window)) {
+    console.warn('Push notifications not supported in this browser.');
+    return;
+  }
+
+  // Only auto-register if permission is already granted
+  if (Notification.permission !== 'granted') {
+    return;
+  }
+
+  try {
+    // Register the service worker
+    const registration = await navigator.serviceWorker.register('/sw.js');
+    console.log('Service Worker registered:', registration.scope);
+
+    // Check if already subscribed
+    let subscription = await registration.pushManager.getSubscription();
+    
+    if (!subscription) {
+      // Get the VAPID public key from the backend
+      const vapidResp = await apiCall(`/choregroups/${currentSession.choregroup_id}/vapid-public-key`, "GET");
+      if (!vapidResp || !vapidResp.public_key) {
+        console.warn('No VAPID public key from server.');
+        return;
+      }
+
+      // Convert the VAPID key from base64url to Uint8Array
+      const vapidKey = urlBase64ToUint8Array(vapidResp.public_key);
+
+      // Subscribe to push
+      subscription = await registration.pushManager.subscribe({
+        userVisibleOnly: true,
+        applicationServerKey: vapidKey
+      });
+      console.log('Push subscription created.');
+    }
+
+    // Send the subscription to the backend
+    const subJSON = subscription.toJSON();
+    await apiCall(`/choregroups/${currentSession.choregroup_id}/push-subscribe`, "POST", {
+      endpoint: subJSON.endpoint,
+      keys: {
+        p256dh: subJSON.keys.p256dh,
+        auth: subJSON.keys.auth
+      }
+    });
+    console.log('Push subscription saved on server.');
+  } catch (err) {
+    console.error('Failed to register push notifications:', err);
+  }
+}
+
+window.enablePushNotificationsClicked = async () => {
+  try {
+    const permission = await Notification.requestPermission();
+    if (permission === 'granted') {
+      showToast("🔔 Push notifications enabled! 🚀");
+      await registerPushNotifications();
+    } else {
+      showToast("⚠️ Notification permission was denied.");
+    }
+  } catch (err) {
+    console.error("Failed to enable push notifications:", err);
+  }
+  hidePushBanners();
+};
+
+window.dismissPushBanner = () => {
+  sessionStorage.setItem("push_banner_dismissed", "true");
+  hidePushBanners();
+};
+
+function hidePushBanners() {
+  const pBanner = document.getElementById("push-banner-parent");
+  const kBanner = document.getElementById("push-banner-kid");
+  if (pBanner) pBanner.style.display = "none";
+  if (kBanner) kBanner.style.display = "none";
+}
+
+function checkAndShowPushBanners() {
+  if (!currentSession) return;
+  
+  if (!('serviceWorker' in navigator) || !('PushManager' in window)) {
+    return;
+  }
+  
+  if (Notification.permission === 'granted' || sessionStorage.getItem("push_banner_dismissed") === "true") {
+    return;
+  }
+
+  const pBanner = document.getElementById("push-banner-parent");
+  const kBanner = document.getElementById("push-banner-kid");
+  
+  if (currentSession.role === "admin" && pBanner) {
+    pBanner.style.display = "flex";
+  } else if (currentSession.role === "user" && kBanner) {
+    kBanner.style.display = "flex";
+  }
+}
+
+// Helper: convert base64url string to Uint8Array for applicationServerKey
+function urlBase64ToUint8Array(base64String) {
+  const padding = '='.repeat((4 - base64String.length % 4) % 4);
+  const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/');
+  const rawData = window.atob(base64);
+  const outputArray = new Uint8Array(rawData.length);
+  for (let i = 0; i < rawData.length; ++i) {
+    outputArray[i] = rawData.charCodeAt(i);
+  }
+  return outputArray;
+}
+
+window.notifyKidsOfNewTasks = async () => {
+  if (!currentSession || !currentSession.choregroup_id) return;
+  try {
+    await apiCall(`/choregroups/${currentSession.choregroup_id}/notify`, "POST");
+    showToast("🔔 Kids notified successfully! 🚀");
+  } catch (err) {
+    console.error("Failed to notify kids:", err);
+    showToast("⚠️ Failed to send notification.");
+  }
+};
+
+/* ==========================================================
    KID DELEGATED AUTHENTICATION LOGIC
    ========================================================== */
+
+window.shareAppWithFriend = async () => {
+  const homepageLink = `${window.location.origin}${window.location.pathname}`;
+  
+  const shareTitle = "ChoreCraft - Fun Household Chore Management";
+  const shareText = "Try ChoreCraft! It's an amazing way to manage household tasks and rewards: ";
+
+  if (navigator.share) {
+    try {
+      await navigator.share({
+        title: shareTitle,
+        text: shareText,
+        url: homepageLink
+      });
+      showToast("App shared successfully! 🚀");
+      return;
+    } catch (err) {
+      if (err.name === "AbortError") {
+        return;
+      }
+      console.error("Web Share failed:", err);
+    }
+  }
+
+  const fullShareText = `${shareText}${homepageLink}`;
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    await navigator.clipboard.writeText(fullShareText).catch(() => {
+      copyToClipboardFallback(fullShareText);
+    });
+  } else {
+    copyToClipboardFallback(fullShareText);
+  }
+  showToast("📋 Share link copied to clipboard!");
+};
 
 async function generateKidAccessLink(userID, username = "", role = "user") {
   try {
     const groupId = currentSession.choregroup_id;
     const res = await apiCall(`/choregroups/${groupId}/members/${userID}/login-link`, "POST");
-    const longLink = `${window.location.origin}${window.location.pathname}?login_token=${res.token}`;
+    const link = `${window.location.origin}${window.location.pathname}?login_token=${res.token}`;
 
     const displayUsername = username || "Family Member";
 
-    // Attempt to shorten the login link using TinyURL
-    let link = longLink;
-    try {
-      const response = await fetch(`https://tinyurl.com/api-create.php?url=${encodeURIComponent(longLink)}`);
-      if (response.ok) {
-        const short = await response.text();
-        if (short && short.startsWith("http")) {
-          link = short;
-        }
-      }
-    } catch (e) {
-      console.warn("Could not shorten link, using long link:", e);
-    }
-
-    const shareTitle = "ChoreCraft Login Link";
-    const shareText = role === "admin"
-      ? `Log in to ChoreCraft as ${displayUsername}:`
-      : `Log in to ChoreCraft:`;
-
-    // Try native share on mobile
+    // Try native share if on mobile/supported browser first
     if (navigator.share) {
+      const shareTitle = "ChoreCraft Access Link";
+      const shareText = role === "admin"
+        ? `Log in to ChoreCraft as ${displayUsername}:`
+        : `Log in to ChoreCraft:`;
       try {
         await navigator.share({
           title: shareTitle,
@@ -2107,24 +2362,38 @@ async function generateKidAccessLink(userID, username = "", role = "user") {
           url: link
         });
         showToast("Shared successfully! 🚀");
-        return;
+        return; // Success, bypass showing webpage modal
       } catch (err) {
-        if (err.name === "AbortError") {
+        if (err.name !== "AbortError") {
+          console.error("Web Share failed:", err);
+        } else {
+          // User aborted/canceled the native share sheet, stop showing the modal too
           return;
         }
-        console.error("Web Share failed:", err);
       }
     }
 
-    if (navigator.clipboard && navigator.clipboard.writeText) {
-      await navigator.clipboard.writeText(link).catch(() => {
-        copyToClipboardFallback(link);
-      });
-    } else {
-      copyToClipboardFallback(link);
+    // Fallback: Set input value and show modal (for desktop)
+    const input = document.getElementById("generated-login-link-input");
+    if (input) {
+      input.value = link;
     }
 
-    showToast(`🔗 Login link for ${displayUsername} copied to clipboard!`);
+    const titleEl = document.getElementById("login-link-modal-title");
+    if (titleEl) {
+      titleEl.innerHTML = `Share Profile 🚀`;
+    }
+
+    const modal = document.getElementById("login-link-modal");
+    if (modal) {
+      modal.classList.add("active");
+    }
+
+    const mobileShare = document.querySelector(".mobile-only-share");
+    if (mobileShare) {
+      const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+      mobileShare.style.display = (isMobile || navigator.share) ? "block" : "none";
+    }
   } catch (err) {
     alert("Failed to generate access link: " + err.message);
   }
@@ -2241,14 +2510,13 @@ window.handleCancelPurchase = handleCancelPurchase;
 window.submitChoreForApproval = submitChoreForApproval;
 window.simulateHeroChoreCompletion = simulateHeroChoreCompletion;
 window.switchParentRewardSubTab = switchParentRewardSubTab;
-window.handleFindHousehold = handleFindHousehold;
-window.pressPinNumber = pressPinNumber;
-window.clearPinNumber = clearPinNumber;
-window.goBackToAvatars = goBackToAvatars;
-window.submitPinLogin = submitPinLogin;
 window.generateKidAccessLink = generateKidAccessLink;
 window.copyDelegatedLink = copyDelegatedLink;
 window.shareViaWhatsApp = shareViaWhatsApp;
 window.shareViaSMS = shareViaSMS;
 window.shareViaEmail = shareViaEmail;
-
+window.enablePushNotificationsClicked = enablePushNotificationsClicked;
+window.dismissPushBanner = dismissPushBanner;
+window.deleteFamilyMember = deleteFamilyMember;
+window.openChangePasswordModal = openChangePasswordModal;
+window.handleSavePassword = handleSavePassword;

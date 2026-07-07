@@ -59,7 +59,7 @@ func TestMain(m *testing.M) {
 		log.Fatalf("could not execute schema for test database: %v", err)
 	}
 
-	testRouter = setupRouter(testDbPool, &config.Config{GeminiAPIKey: "dummy_key", JWTSecret: "test-secret-key-1234567890"})
+	testRouter = setupRouter(testDbPool, &config.Config{GeminiAPIKey: "dummy_key", JWTSecret: "test-secret-key-1234567890", VAPIDPublicKey: "", VAPIDPrivateKey: "", VAPIDContact: ""})
 	exitCode := m.Run()
 	os.Exit(exitCode)
 }

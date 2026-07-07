@@ -92,6 +92,13 @@ func (r *Repository) GetUserByUsername(ctx context.Context, username string) (mo
 	return user, err
 }
 
+// UpdateUserPassword updates the password hash for a specific user.
+func (r *Repository) UpdateUserPassword(ctx context.Context, userID, choregroupID uuid.UUID, newPasswordHash string) error {
+	_, err := r.db.Exec(ctx, "UPDATE users SET password_hash = $1 WHERE id = $2 AND choregroup_id = $3", newPasswordHash, userID, choregroupID)
+	return err
+}
+
+
 // GetUserByID retrieves a user by their ID.
 func (r *Repository) GetUserByID(ctx context.Context, userID uuid.UUID) (model.User, error) {
 	var user model.User
@@ -488,4 +495,43 @@ func (r *Repository) GetUserByChoreGroupIDAndUsername(ctx context.Context, chore
 	err := r.db.QueryRow(ctx, "SELECT id, choregroup_id, username, password_hash, role, points FROM users WHERE choregroup_id = $1 AND username = $2", choregroupID, username).Scan(
 		&user.ID, &user.ChoreGroupID, &user.Username, &user.PasswordHash, &user.Role, &user.Points)
 	return user, err
+}
+
+// SavePushSubscription upserts a web push subscription for a user.
+func (r *Repository) SavePushSubscription(ctx context.Context, userID uuid.UUID, endpoint, p256dh, auth string) error {
+	_, err := r.db.Exec(ctx,
+		`INSERT INTO push_subscriptions (id, user_id, endpoint, p256dh, auth)
+		 VALUES (uuid_generate_v4(), $1, $2, $3, $4)
+		 ON CONFLICT (endpoint) DO UPDATE SET user_id = $1, p256dh = $3, auth = $4`,
+		userID, endpoint, p256dh, auth)
+	return err
+}
+
+// GetPushSubscriptionsByChoreGroup returns all push subscriptions for kid users in a choregroup.
+func (r *Repository) GetPushSubscriptionsByChoreGroup(ctx context.Context, choregroupID uuid.UUID) ([]model.PushSubscription, error) {
+	rows, err := r.db.Query(ctx,
+		`SELECT ps.id, ps.user_id, ps.endpoint, ps.p256dh, ps.auth, ps.created_at
+		 FROM push_subscriptions ps
+		 JOIN users u ON ps.user_id = u.id
+		 WHERE u.choregroup_id = $1 AND u.role = 'user'`, choregroupID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var subs []model.PushSubscription
+	for rows.Next() {
+		var sub model.PushSubscription
+		if err := rows.Scan(&sub.ID, &sub.UserID, &sub.Endpoint, &sub.P256dh, &sub.Auth, &sub.CreatedAt); err != nil {
+			return nil, err
+		}
+		subs = append(subs, sub)
+	}
+	return subs, rows.Err()
+}
+
+// DeletePushSubscription removes a push subscription by endpoint.
+func (r *Repository) DeletePushSubscription(ctx context.Context, endpoint string) error {
+	_, err := r.db.Exec(ctx, "DELETE FROM push_subscriptions WHERE endpoint = $1", endpoint)
+	return err
 }

@@ -29,17 +29,19 @@ const (
 
 // API holds the dependencies for the API handlers.
 type API struct {
-	service   *service.Service
-	broker    *Broker
-	jwtSecret []byte
+	service        *service.Service
+	broker         *Broker
+	jwtSecret      []byte
+	vapidPublicKey string
 }
 
 // New creates a new API instance.
-func New(s *service.Service, jwtSecret string) *API {
+func New(s *service.Service, jwtSecret, vapidPublicKey string) *API {
 	return &API{
-		service:   s,
-		broker:    NewBroker(),
-		jwtSecret: []byte(jwtSecret),
+		service:        s,
+		broker:         NewBroker(),
+		jwtSecret:      []byte(jwtSecret),
+		vapidPublicKey: vapidPublicKey,
 	}
 }
 
@@ -59,6 +61,7 @@ func (a *API) RegisterRoutes(r *chi.Mux) {
 	// Protected routes
 	r.Route("/api/choregroups/{choregroupID}", func(r chi.Router) {
 		r.Use(a.authMiddleware)
+		r.Get("/", a.getChoreGroup)
 		// SSE Events
 		r.Get("/events", a.eventsSSE)
 		// Tasks
@@ -68,6 +71,9 @@ func (a *API) RegisterRoutes(r *chi.Mux) {
 		r.Delete("/tasks/{taskID}", a.deleteTask)
 		r.Post("/tasks/{taskID}/submit", a.submitTask)
 		r.Put("/tasks/{taskID}/status", a.updateTaskStatusByAdmin)
+		r.Post("/notify", a.notifyKids)
+		r.Post("/push-subscribe", a.pushSubscribe)
+		r.Get("/vapid-public-key", a.getVAPIDPublicKey)
 		// Submissions
 		r.Get("/submissions", a.listSubmissions)
 		// Users & Stats
@@ -76,6 +82,7 @@ func (a *API) RegisterRoutes(r *chi.Mux) {
 		r.Get("/members", a.getChoreGroupMembers)
 		r.Post("/members/{userID}/login-link", a.generateLoginLink)
 		r.Delete("/members/{userID}", a.deleteUser)
+		r.Put("/members/{userID}/password", a.updatePassword)
 		// Rewards
 		r.Post("/rewards", a.createReward)
 		r.Get("/rewards", a.listRewards)
@@ -437,6 +444,61 @@ func (a *API) markNotificationsViewed(w http.ResponseWriter, r *http.Request) {
 	w.Write([]byte(`{"status":"success"}`))
 }
 
+func (a *API) notifyKids(w http.ResponseWriter, r *http.Request) {
+	user := r.Context().Value(userKey).(model.User)
+	if user.Role != "admin" {
+		http.Error(w, "Forbidden", http.StatusForbidden)
+		return
+	}
+
+	// Send real web push notifications to kid devices
+	go a.service.SendPushToKids(context.Background(), user.ChoreGroupID, "ChoreCraft", "🔔 New chores are waiting for you! ✨")
+
+	// Also broadcast SSE for in-app refresh
+	a.broker.Broadcast(user.ChoreGroupID, "new_task")
+	w.WriteHeader(http.StatusOK)
+	w.Write([]byte(`{"status":"success"}`))
+}
+
+func (a *API) pushSubscribe(w http.ResponseWriter, r *http.Request) {
+	user := r.Context().Value(userKey).(model.User)
+
+	var req model.PushSubscribeRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "Invalid request body", http.StatusBadRequest)
+		return
+	}
+
+	if req.Endpoint == "" || req.Keys.P256dh == "" || req.Keys.Auth == "" {
+		http.Error(w, "Missing subscription fields", http.StatusBadRequest)
+		return
+	}
+
+	if err := a.service.SavePushSubscription(r.Context(), user.ID, req.Endpoint, req.Keys.P256dh, req.Keys.Auth); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	w.WriteHeader(http.StatusOK)
+	w.Write([]byte(`{"status":"subscribed"}`))
+}
+
+func (a *API) getVAPIDPublicKey(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]string{"public_key": a.vapidPublicKey})
+}
+
+// getChoreGroup handles GET /api/choregroups/{choregroupID}
+func (a *API) getChoreGroup(w http.ResponseWriter, r *http.Request) {
+	user := r.Context().Value(userKey).(model.User)
+	group, err := a.service.GetChoreGroupByID(r.Context(), user.ChoreGroupID)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	json.NewEncoder(w).Encode(group)
+}
+
 // getChoreGroupMembers godoc
 // @Summary      Get all members of a choregroup
 // @Tags         Users
@@ -488,6 +550,41 @@ func (a *API) deleteUser(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 	a.broker.Broadcast(user.ChoreGroupID, "refresh")
 }
+
+// updatePassword handles PUT /api/choregroups/{choregroupID}/members/{userID}/password
+func (a *API) updatePassword(w http.ResponseWriter, r *http.Request) {
+	loggedInUser := r.Context().Value(userKey).(model.User)
+
+	targetUserID, err := uuid.Parse(chi.URLParam(r, "userID"))
+	if err != nil {
+		http.Error(w, "Invalid User ID", http.StatusBadRequest)
+		return
+	}
+
+	var req model.UpdatePasswordRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	if req.Password == "" {
+		http.Error(w, "Password cannot be empty", http.StatusBadRequest)
+		return
+	}
+
+	err = a.service.UpdateUserPassword(r.Context(), loggedInUser, targetUserID, req.Password)
+	if errors.Is(err, service.ErrForbidden) {
+		http.Error(w, "Forbidden", http.StatusForbidden)
+		return
+	} else if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	w.WriteHeader(http.StatusNoContent)
+	a.broker.Broadcast(loggedInUser.ChoreGroupID, "refresh")
+}
+
 
 // authMiddleware fetches the user from the database and performs authorization using JWT session cookie.
 func (a *API) authMiddleware(next http.Handler) http.Handler {
@@ -779,11 +876,18 @@ func (a *API) loginDelegated(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	group, err := a.service.GetChoreGroupByID(r.Context(), claims.ChoreGroupID)
+	if err != nil {
+		http.Error(w, "Internal server error fetching choregroup", http.StatusInternalServerError)
+		return
+	}
+
 	res := model.LoginResponse{
-		UserID:       claims.UserID,
-		Username:     user.Username,
-		ChoreGroupID: claims.ChoreGroupID,
-		Role:         claims.Role,
+		UserID:         claims.UserID,
+		Username:       user.Username,
+		ChoreGroupID:   claims.ChoreGroupID,
+		ChoreGroupName: group.Name,
+		Role:           claims.Role,
 	}
 	json.NewEncoder(w).Encode(res)
 }
