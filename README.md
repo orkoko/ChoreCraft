@@ -92,9 +92,10 @@ Open `backend/.env` and add your Gemini API key:
 GEMINI_API_KEY="your_key_here"
 ```
 
-Then run the server from the project root:
+Then run the server:
 ```bash
-go run backend/cmd/server/main.go
+cd backend
+go run cmd/server/main.go
 ```
 
 The API will be available at `http://localhost:8080`. Auto-generated Swagger docs are at `http://localhost:8080/swagger/index.html`.

@@ -2133,31 +2133,39 @@ select:focus {
 
 /* Cooperative Purple theme override for modal coin icon & select */
 .points-coin {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 1.6em;
-  height: 1.6em;
-  background: radial-gradient(circle, #ffffff 0%, #fff3bf 45%, #fab005 85%, #f57c00 100%);
-  border: 1.5px solid #e65100;
-  border-radius: 50%;
-  box-shadow: 0 1.5px 3px rgba(0, 0, 0, 0.25), inset 0 1px 1.5px rgba(255, 255, 255, 0.9);
-  font-size: 0.8em;
-  font-style: normal;
-  vertical-align: middle;
-  line-height: 1;
-  user-select: none;
-  margin-left: 0.25em;
-  margin-right: 0.1em;
-  font-weight: normal;
-  text-shadow: 0 0 2px #5c1d03, 0 1px 1px rgba(0, 0, 0, 0.4);
-  transition: filter 0.25s ease;
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  width: 22px !important;
+  height: 22px !important;
+  background: radial-gradient(circle, #ffffff 0%, #fff3bf 45%, #fab005 85%, #f57c00 100%) !important;
+  border: 1.5px solid #e65100 !important;
+  border-radius: 50% !important;
+  box-shadow: 0 1.5px 3px rgba(0, 0, 0, 0.25), inset 0 1px 1.5px rgba(255, 255, 255, 0.9) !important;
+  font-size: 12px !important;
+  font-style: normal !important;
+  vertical-align: middle !important;
+  line-height: 1 !important;
+  user-select: none !important;
+  margin-left: 4px !important;
+  margin-right: 4px !important;
+  font-weight: normal !important;
+  text-shadow: 0 0 2px #5c1d03, 0 1px 1px rgba(0, 0, 0, 0.4) !important;
+  transition: filter 0.25s ease !important;
+  color: initial !important;
+  font-family: "Segoe UI Emoji", "Apple Color Emoji", "Noto Color Emoji", "Segoe UI Symbol", sans-serif !important;
+  white-space: nowrap !important;
 }
 
 .points-coin.coop-theme,
-#chore-points-input.coop-theme,
 .custom-select-container.coop-theme .points-coin {
-  filter: hue-rotate(225deg) saturate(1.3) brightness(0.8);
+  font-size: 7.5px !important;
+  letter-spacing: -0.5px !important;
+  filter: hue-rotate(225deg) saturate(1.3) brightness(0.8) !important;
+}
+
+#chore-points-input.coop-theme {
+  filter: hue-rotate(225deg) saturate(1.3) brightness(0.8) !important;
 }
 
 /* Custom dropdown styles */
@@ -2752,23 +2760,7 @@ select:focus {
   grid-row: auto !important;
 }
 
-/* Make 3 cats smaller to fit inside the cooperative coin circle and make coin symmetrical */
-.points-coin {
-  width: 22px !important;
-  height: 22px !important;
-  font-size: 12px !important;
-  line-height: 1 !important;
-  display: inline-flex !important;
-  align-items: center !important;
-  justify-content: center !important;
-  margin-left: 4px !important;
-  margin-right: 4px !important;
-}
 
-.points-coin.coop-theme {
-  font-size: 7.5px !important;
-  letter-spacing: -0.5px !important;
-}
 
 /* --- Notification Dropdown Styles --- */
 .notification-dropdown-container {
@@ -3040,4 +3032,36 @@ select:focus {
   font-weight: 900;
   font-size: 1.15em;
   margin-right: 4px;
+}
+
+/* Loading Spinner */
+.loading-spinner-container {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 3rem;
+  color: var(--text-muted);
+  font-weight: bold;
+  font-size: 0.95rem;
+  gap: 0.75rem;
+  width: 100%;
+}
+
+.loading-spinner {
+  width: 32px;
+  height: 32px;
+  border: 4px solid rgba(0, 0, 0, 0.05);
+  border-top-color: var(--primary-blue);
+  border-radius: 50%;
+  animation: spin 0.8s infinite linear;
+}
+
+.loading-spinner.coop-theme {
+  border-top-color: #8E24AA; /* purple theme for coop */
+}
+
+@keyframes spin {
+  0% { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
 }

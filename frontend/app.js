@@ -568,6 +568,12 @@ async function renderParentDashboard() {
   
   const groupId = currentSession.choregroup_id;
   
+  const choresList = document.getElementById("parent-chores-list");
+  const pendingList = document.getElementById("parent-pending-list");
+  const loadingHtml = `<div class="loading-spinner-container"><div class="loading-spinner"></div><span>Loading...</span></div>`;
+  if (choresList) choresList.innerHTML = loadingHtml;
+  if (pendingList) pendingList.innerHTML = loadingHtml;
+  
   let pendingSubmissions = [];
   let familyMembers = [];
   
@@ -615,12 +621,15 @@ async function renderParentDashboard() {
   }
   
   // Render Active Chores list
-  const choresList = document.getElementById("parent-chores-list");
-  choresList.innerHTML = "";
+  if (choresList) choresList.innerHTML = "";
   
   const activeOnly = activeTasks.filter(t => t.status !== "done");
   
   activeOnly.sort((a, b) => {
+    const aTimed = !!(a.status === "assigned" && a.expires_at);
+    const bTimed = !!(b.status === "assigned" && b.expires_at);
+    if (aTimed !== bTimed) return aTimed ? -1 : 1;
+
     if (a.is_mandatory !== b.is_mandatory) return a.is_mandatory ? -1 : 1;
     if (a.status !== b.status) return a.status === "assigned" ? -1 : 1;
     return 0;
@@ -696,8 +705,7 @@ async function renderParentDashboard() {
   }
   
   // Render Pending Submissions
-  const pendingList = document.getElementById("parent-pending-list");
-  pendingList.innerHTML = "";
+  if (pendingList) pendingList.innerHTML = "";
   
   const pendingContainer = document.getElementById("parent-pending-submissions-container");
   if (pendingSubmissions.length === 0) {
@@ -1114,6 +1122,10 @@ async function renderKidDashboard() {
   const userId = currentSession.user_id;
   const groupId = currentSession.choregroup_id;
   
+  const kidChoresList = document.getElementById("kid-chores-list");
+  const loadingHtml = `<div class="loading-spinner-container"><div class="loading-spinner"></div><span>Loading...</span></div>`;
+  if (kidChoresList) kidChoresList.innerHTML = loadingHtml;
+  
   let kidTasks = [];
   let userPoints = 0;
   
@@ -1141,14 +1153,17 @@ async function renderKidDashboard() {
   updateHeaderAuthBtn();
   
   // Render My Chores list
-  const kidChoresList = document.getElementById("kid-chores-list");
-  kidChoresList.innerHTML = "";
+  if (kidChoresList) kidChoresList.innerHTML = "";
   
   const activeOnly = kidTasks.filter(t => t.status !== "done");
   // A mandatory task blocks non-mandatory tasks if it's assigned OR pending approval
   const hasPendingMandatory = activeOnly.some(t => t.is_mandatory && (t.status === "assigned" || t.status === "pending_approval"));
   
   activeOnly.sort((a, b) => {
+    const aTimed = !!(a.status === "assigned" && a.expires_at);
+    const bTimed = !!(b.status === "assigned" && b.expires_at);
+    if (aTimed !== bTimed) return aTimed ? -1 : 1;
+
     if (a.is_mandatory !== b.is_mandatory) return a.is_mandatory ? -1 : 1;
     if (a.status !== b.status) return a.status === "assigned" ? -1 : 1;
     return 0;
@@ -1669,6 +1684,22 @@ async function renderRewardsDashboard() {
   const choregroupID = currentSession.choregroup_id;
   const isParent = currentSession.role === "admin";
   
+  const listContainer = document.getElementById('parent-rewards-list');
+  const fulfillContainer = document.getElementById('parent-rewards-fulfillment-list');
+  const availableContainer = document.getElementById('kid-rewards-list');
+  const myPendingContainer = document.getElementById('kid-rewards-my-pending-list');
+  const voteContainer = document.getElementById('kid-rewards-pending-list');
+
+  const loadingHtml = `<div class="loading-spinner-container"><div class="loading-spinner"></div><span>Loading...</span></div>`;
+  if (isParent) {
+    if (listContainer) listContainer.innerHTML = loadingHtml;
+    if (fulfillContainer) fulfillContainer.innerHTML = loadingHtml;
+  } else {
+    if (availableContainer) availableContainer.innerHTML = loadingHtml;
+    if (myPendingContainer) myPendingContainer.innerHTML = loadingHtml;
+    if (voteContainer) voteContainer.innerHTML = loadingHtml;
+  }
+  
   try {
     const rewards = await apiCall(`/choregroups/${choregroupID}/rewards`) || [];
     const stats = await apiCall(`/choregroups/${choregroupID}/statistics`) || { users: [], cooperative_points: 0 };
@@ -1713,7 +1744,6 @@ async function renderRewardsDashboard() {
       const countEl = document.getElementById('parent-fulfillment-rewards-count');
       if (countEl) countEl.innerText = fulfillmentPurchases.length;
       
-      const listContainer = document.getElementById('parent-rewards-list');
       if (listContainer) {
         if (availableRewards.length === 0) {
           listContainer.innerHTML = `<div class="empty-state" style="padding: 3rem; text-align: center; color: var(--text-muted); font-weight: 700; font-size: 1.1rem;">🎁 No available rewards.</div>`;
@@ -1728,8 +1758,6 @@ async function renderRewardsDashboard() {
             if (isAssignedToOther) {
               const assignedName = membersMap[reward.assigned_to_user_id] || 'other user';
               displayNote = `<div class="reward-assigned-user">👤 For ${escapeHTML(assignedName)} only</div>`;
-            } else if (isAssignedToMe) {
-              displayNote = `<div class="reward-assigned-user" style="color: var(--success-green); background-color: var(--success-green-light)">⭐ Assigned to me!</div>`;
             }
 
             const costClass = isCoop ? 'reward-cost-display coop-theme' : 'reward-cost-display';
@@ -1764,7 +1792,6 @@ async function renderRewardsDashboard() {
         }
       }
 
-      const fulfillContainer = document.getElementById('parent-rewards-fulfillment-list');
       const fulfillWrapper = document.getElementById('parent-rewards-fulfillment-container');
       if (fulfillContainer) {
         if (fulfillmentPurchases.length === 0) {
@@ -1815,7 +1842,6 @@ async function renderRewardsDashboard() {
         return approvals[currentSession.user_id] === 'pending';
       });
 
-      const availableContainer = document.getElementById('kid-rewards-list');
       if (availableContainer) {
         if (availableRewards.length === 0) {
           availableContainer.innerHTML = `<div class="empty-state" style="padding: 3rem; text-align: center; color: var(--text-muted); font-weight: 700; font-size: 1.1rem;">🎁 No rewards available right now.</div>`;
@@ -1832,8 +1858,6 @@ async function renderRewardsDashboard() {
             if (isAssignedToOther) {
               const assignedName = membersMap[reward.assigned_to_user_id] || 'other user';
               displayNote = `<div class="reward-assigned-user">🔒 For ${escapeHTML(assignedName)} only</div>`;
-            } else if (isAssignedToMe) {
-              displayNote = `<div class="reward-assigned-user" style="color: var(--success-green); background-color: var(--success-green-light)">⭐ Assigned to me!</div>`;
             }
 
             const costClass = isCoop ? 'reward-cost-display coop-theme' : 'reward-cost-display';
@@ -1864,7 +1888,6 @@ async function renderRewardsDashboard() {
         }
       }
 
-      const myPendingContainer = document.getElementById('kid-rewards-my-pending-list');
       const myPendingWrapper = document.getElementById('kid-rewards-my-pending-container');
       if (myPendingContainer) {
         if (myPendingPurchases.length === 0) {
@@ -1904,7 +1927,6 @@ async function renderRewardsDashboard() {
         }
       }
 
-      const voteContainer = document.getElementById('kid-rewards-pending-list');
       const voteWrapper = document.getElementById('kid-rewards-pending-container');
       if (voteContainer) {
         if (awaitingMyVotePurchases.length === 0) {
@@ -2349,6 +2371,20 @@ async function generateKidAccessLink(userID, username = "", role = "user") {
 
     const displayUsername = username || "Family Member";
 
+    // Shorten the link using TinyURL with a graceful local fallback
+    let finalLink = link;
+    try {
+      const response = await fetch(`https://tinyurl.com/api-create.php?url=${encodeURIComponent(link)}`);
+      if (response.ok) {
+        const text = await response.text();
+        if (text && text.startsWith("http")) {
+          finalLink = text.trim();
+        }
+      }
+    } catch (err) {
+      console.warn("TinyURL shortening failed, using original link:", err);
+    }
+
     // Try native share if on mobile/supported browser first
     if (navigator.share) {
       const shareTitle = "ChoreCraft Access Link";
@@ -2359,7 +2395,7 @@ async function generateKidAccessLink(userID, username = "", role = "user") {
         await navigator.share({
           title: shareTitle,
           text: shareText,
-          url: link
+          url: finalLink
         });
         showToast("Shared successfully! 🚀");
         return; // Success, bypass showing webpage modal
@@ -2376,7 +2412,7 @@ async function generateKidAccessLink(userID, username = "", role = "user") {
     // Fallback: Set input value and show modal (for desktop)
     const input = document.getElementById("generated-login-link-input");
     if (input) {
-      input.value = link;
+      input.value = finalLink;
     }
 
     const titleEl = document.getElementById("login-link-modal-title");
