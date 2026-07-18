@@ -568,11 +568,10 @@ async function renderParentDashboard() {
   
   const groupId = currentSession.choregroup_id;
   
+  setTabLoading("parent-chores-content", true);
+  
   const choresList = document.getElementById("parent-chores-list");
   const pendingList = document.getElementById("parent-pending-list");
-  const loadingHtml = `<div class="loading-spinner-container"><div class="loading-spinner"></div><span>Loading...</span></div>`;
-  if (choresList) choresList.innerHTML = loadingHtml;
-  if (pendingList) pendingList.innerHTML = loadingHtml;
   
   let pendingSubmissions = [];
   let familyMembers = [];
@@ -617,6 +616,7 @@ async function renderParentDashboard() {
     }
   } catch (err) {
     console.error("Dashboard render failed:", err);
+    setTabLoading("parent-chores-content", false);
     return;
   }
   
@@ -626,11 +626,12 @@ async function renderParentDashboard() {
   const activeOnly = activeTasks.filter(t => t.status !== "done");
   
   activeOnly.sort((a, b) => {
+    if (a.is_mandatory !== b.is_mandatory) return a.is_mandatory ? -1 : 1;
+
     const aTimed = !!(a.status === "assigned" && a.expires_at);
     const bTimed = !!(b.status === "assigned" && b.expires_at);
     if (aTimed !== bTimed) return aTimed ? -1 : 1;
 
-    if (a.is_mandatory !== b.is_mandatory) return a.is_mandatory ? -1 : 1;
     if (a.status !== b.status) return a.status === "assigned" ? -1 : 1;
     return 0;
   });
@@ -652,6 +653,15 @@ async function renderParentDashboard() {
         }
       }
       
+      let dependencyHtml = "";
+      if (task.parent_task_id) {
+        const parentTask = activeTasks.find(t => t.id === task.parent_task_id);
+        if (parentTask) {
+          const { title: parentTitle } = parseChoreTitle(parentTask.title);
+          dependencyHtml = `<p style="font-size: 0.8rem; color: var(--primary-blue); margin-top: 0.25rem;">🔗 Continuation of: <strong>${parentTitle}</strong></p>`;
+        }
+      }
+      
       const card = document.createElement("div");
       card.className = `chore-card ${task.status === 'pending_approval' ? 'submitted' : ''}`;
       
@@ -668,6 +678,7 @@ async function renderParentDashboard() {
       
       const controlsHtml = `
         <div class="card-controls">
+          <button class="btn btn-outline btn-sm" onclick="openAddChoreModal('${task.id}')" title="Add Continuation Chore">🔗</button>
           ${task.status !== "pending_approval" && task.status !== "expired" ? `<button class="btn btn-outline btn-sm" onclick="openEditChoreModal('${task.id}')">✏️</button>` : ''}
           ${task.status === "expired" ? `<button class="btn btn-outline btn-sm" onclick="openEditChoreModal('${task.id}')">✏️</button>` : ''}
           <button class="btn btn-outline btn-sm" style="color: var(--destructive-red); border-color: var(--destructive-red);" onclick="deleteChore('${task.id}')">🗑️</button>
@@ -686,12 +697,22 @@ async function renderParentDashboard() {
           <div class="card-details">
             <h3>${displayTitle}</h3>
             ${assigneeHtml}
+            ${dependencyHtml}
             ${timerHtml}
           </div>
         </div>
         <div class="card-actions-row">
-          <div class="card-points-badge" ${task.is_mandatory ? 'style="background-color: var(--danger-red); color: white;"' : ''}>
-            ${task.is_mandatory ? '0' : '+' + task.points_reward} ${coinHtml}
+          <div style="display: flex; align-items: center; gap: 0.5rem;">
+            ${task.is_mandatory ? '' : `
+              <div class="card-points-badge">
+                +${task.points_reward} ${coinHtml}
+              </div>
+            `}
+            ${task.continuation_count > 0 ? `
+              <div class="continuation-count-badge" style="color: #475569; font-size: 0.95rem; font-weight: bold; display: inline-flex; align-items: center; gap: 0.2rem; margin-left: 0.5rem;">
+                +${task.continuation_count} 📋
+              </div>
+            ` : ''}
           </div>
           <div class="card-controls">
             ${statusHtml}
@@ -784,6 +805,7 @@ async function renderParentDashboard() {
     `;
     membersList.appendChild(item);
   });
+  setTabLoading("parent-chores-content", false);
 }
 
 // Populate assignees in the Add Chore dialog
@@ -819,10 +841,9 @@ function toggleMandatoryChore(checked) {
   }
 }
 
-async function openAddChoreModal() {
-  document.getElementById("chore-modal-title").innerText = "Create New Chore";
+async function openAddChoreModal(parentTaskId = "") {
   document.getElementById("chore-id-input").value = "";
-  document.getElementById("chore-title-input").value = "";
+  document.getElementById("chore-parent-task-id-input").value = parentTaskId;
   
   const mandatoryInput = document.getElementById("chore-mandatory-input");
   if (mandatoryInput) {
@@ -834,7 +855,26 @@ async function openAddChoreModal() {
   toggleChoreType("individual");
   setPointsSelectValue("5");
   
-  await populateAssigneeSelect();
+  const assigneeSelect = document.getElementById("chore-assignee-input");
+  if (parentTaskId) {
+    const parentTask = activeTasks.find(t => t.id === parentTaskId);
+    const parentTitle = parentTask ? parseChoreTitle(parentTask.title).title : "Chore";
+    document.getElementById("chore-modal-title").innerText = `Add Continuation for "${parentTitle}"`;
+    document.getElementById("chore-title-input").value = "";
+    
+    await populateAssigneeSelect(parentTask ? parentTask.assigned_to_user_id : null);
+    if (parentTask && parentTask.assigned_to_user_id) {
+      assigneeSelect.disabled = true;
+    } else {
+      assigneeSelect.disabled = false;
+    }
+  } else {
+    document.getElementById("chore-modal-title").innerText = "Create New Chore";
+    document.getElementById("chore-title-input").value = "";
+    await populateAssigneeSelect();
+    assigneeSelect.disabled = false;
+  }
+  
   document.getElementById("chore-modal").classList.add("active");
 }
 
@@ -843,6 +883,7 @@ async function handleSaveChore(e) {
   e.preventDefault();
   
   const taskId = document.getElementById("chore-id-input").value;
+  const parentTaskId = document.getElementById("chore-parent-task-id-input").value || null;
   const titleVal = document.getElementById("chore-title-input").value.trim();
   const points = parseInt(document.getElementById("chore-points-input").value);
   const type = document.getElementById("chore-type-input").value;
@@ -881,7 +922,8 @@ async function handleSaveChore(e) {
         title: fullTitle,
         type: type,
         is_mandatory: isMandatory,
-        expires_at: expiresAt
+        expires_at: expiresAt,
+        parent_task_id: parentTaskId
       });
       showToast("Chore updated successfully!");
     } else {
@@ -892,7 +934,8 @@ async function handleSaveChore(e) {
         title: fullTitle,
         type: type,
         is_mandatory: isMandatory,
-        expires_at: expiresAt
+        expires_at: expiresAt,
+        parent_task_id: parentTaskId
       });
       showToast("Chore created on backend server!");
     }
@@ -911,6 +954,7 @@ async function openEditChoreModal(taskId) {
   
   document.getElementById("chore-modal-title").innerText = "Edit Chore";
   document.getElementById("chore-id-input").value = taskId;
+  document.getElementById("chore-parent-task-id-input").value = task.parent_task_id || "";
   
   const { emoji, title } = parseChoreTitle(task.title);
   document.getElementById("chore-title-input").value = title;
@@ -953,6 +997,19 @@ async function openEditChoreModal(taskId) {
   }
 
   await populateAssigneeSelect(task.assigned_to_user_id);
+  
+  const assigneeSelect = document.getElementById("chore-assignee-input");
+  if (task.parent_task_id) {
+    const parentTask = activeTasks.find(t => t.id === task.parent_task_id);
+    if (parentTask && parentTask.assigned_to_user_id) {
+      assigneeSelect.disabled = true;
+    } else {
+      assigneeSelect.disabled = false;
+    }
+  } else {
+    assigneeSelect.disabled = false;
+  }
+  
   document.getElementById("chore-modal").classList.add("active");
 }
 
@@ -1122,9 +1179,9 @@ async function renderKidDashboard() {
   const userId = currentSession.user_id;
   const groupId = currentSession.choregroup_id;
   
+  setTabLoading("kid-chores-content", true);
+  
   const kidChoresList = document.getElementById("kid-chores-list");
-  const loadingHtml = `<div class="loading-spinner-container"><div class="loading-spinner"></div><span>Loading...</span></div>`;
-  if (kidChoresList) kidChoresList.innerHTML = loadingHtml;
   
   let kidTasks = [];
   let userPoints = 0;
@@ -1144,6 +1201,7 @@ async function renderKidDashboard() {
     currentSession.cooperative_points = statsData.cooperative_points || 0;
   } catch (err) {
     console.error("Kid Dashboard render failed:", err);
+    setTabLoading("kid-chores-content", false);
     return;
   }
   
@@ -1160,11 +1218,12 @@ async function renderKidDashboard() {
   const hasPendingMandatory = activeOnly.some(t => t.is_mandatory && (t.status === "assigned" || t.status === "pending_approval"));
   
   activeOnly.sort((a, b) => {
+    if (a.is_mandatory !== b.is_mandatory) return a.is_mandatory ? -1 : 1;
+
     const aTimed = !!(a.status === "assigned" && a.expires_at);
     const bTimed = !!(b.status === "assigned" && b.expires_at);
     if (aTimed !== bTimed) return aTimed ? -1 : 1;
 
-    if (a.is_mandatory !== b.is_mandatory) return a.is_mandatory ? -1 : 1;
     if (a.status !== b.status) return a.status === "assigned" ? -1 : 1;
     return 0;
   });
@@ -1173,9 +1232,21 @@ async function renderKidDashboard() {
     kidChoresList.innerHTML = "";
   } else {
     activeOnly.forEach(task => {
-      const isDisabled = !task.is_mandatory && hasPendingMandatory;
+      // Locked due to mandatory tasks
+      const isLockedByMandatory = !task.is_mandatory && hasPendingMandatory;
+      // Locked due to incomplete parent task
+      let isLockedByParent = false;
+      if (task.parent_task_id) {
+        const parentTask = kidTasks.find(t => t.id === task.parent_task_id);
+        if (!parentTask || parentTask.status !== "done") {
+          isLockedByParent = true;
+        }
+      }
+
+      const isDisabled = isLockedByMandatory || isLockedByParent;
       const card = document.createElement("div");
-      card.className = `chore-card ${task.status === 'pending_approval' ? 'submitted' : ''} ${isDisabled ? 'disabled' : ''}`;
+      card.id = `kid-task-${task.id}`;
+      card.className = `chore-card ${task.status === 'pending_approval' ? 'submitted' : ''} ${isDisabled ? 'locked-blur' : ''}`;
       
       let timerHtml = "";
       if (task.status === "assigned" && task.expires_at) {
@@ -1214,6 +1285,7 @@ async function renderKidDashboard() {
       if (task.is_mandatory) displayTitle = "🚨 " + displayTitle + " (Mandatory)";
       
       const coinHtml = task.type === "cooperative" ? `<span class="points-coin coop-theme">🐱🐱</span>` : `<span class="points-coin">🐱</span>`;
+
       card.innerHTML = `
         <div class="card-top">
           <div class="card-emoji-box">${emoji}</div>
@@ -1223,19 +1295,73 @@ async function renderKidDashboard() {
           </div>
         </div>
         <div class="card-actions-row">
-          <div class="card-points-badge" ${task.is_mandatory ? 'style="background-color: var(--danger-red); color: white;"' : ''}>
-            ${task.is_mandatory ? '0' : '+' + task.points_reward} ${coinHtml}
+          <div style="display: flex; align-items: center; gap: 0.5rem;">
+            ${task.is_mandatory ? '' : `
+              <div class="card-points-badge">
+                +${task.points_reward} ${coinHtml}
+              </div>
+            `}
+            ${task.continuation_count > 0 ? `
+              <div class="continuation-count-badge" style="color: #475569; font-size: 0.95rem; font-weight: bold; display: inline-flex; align-items: center; gap: 0.2rem; margin-left: 0.5rem;">
+                +${task.continuation_count} 📋
+              </div>
+            ` : ''}
           </div>
           <div class="card-controls">
             ${actionHtml}
           </div>
         </div>
       `;
+
+      if (isDisabled) {
+        const overlay = document.createElement("div");
+        overlay.className = "locked-overlay";
+        overlay.innerHTML = "🔒 Locked";
+        card.appendChild(overlay);
+
+        card.onclick = (e) => {
+          e.stopPropagation();
+          e.preventDefault();
+          
+          let targets = [];
+          if (isLockedByMandatory) {
+            // Prioritize mandatory chores
+            targets = activeOnly.filter(t => t.is_mandatory && (t.status === "assigned" || t.status === "pending_approval"));
+          } else if (isLockedByParent) {
+            // Otherwise, target parent chore
+            const parentTask = activeOnly.find(t => t.id === task.parent_task_id);
+            if (parentTask) {
+              targets = [parentTask];
+            }
+          }
+
+          // Clear any existing flashing highlights first
+          document.querySelectorAll('.flashing-highlight').forEach(el => {
+            el.classList.remove('flashing-highlight');
+          });
+
+          targets.forEach(target => {
+            const targetEl = document.getElementById("kid-task-" + target.id);
+            if (targetEl) {
+              targetEl.scrollIntoView({ behavior: "smooth", block: "center" });
+              // Force animation restart by removing and re-adding after a frame
+              requestAnimationFrame(() => {
+                targetEl.classList.add("flashing-highlight");
+              });
+              setTimeout(() => {
+                targetEl.classList.remove("flashing-highlight");
+              }, 3000);
+            }
+          });
+        };
+      }
+
       kidChoresList.appendChild(card);
     });
   }
   
   await renderKidSidebarWidgets();
+  setTabLoading("kid-chores-content", false);
 }
 
 async function renderKidSidebarWidgets() {
@@ -1563,6 +1689,27 @@ function updateHash(tab, subTab = 'available') {
  * Read the current URL hash and navigate to the right tab/sub-tab.
  * Called on page load (after session restored) and on hashchange (back/forward).
  */
+function setTabLoading(tabContentId, isLoading) {
+  const tabContent = document.getElementById(tabContentId);
+  if (!tabContent) return;
+  
+  let loader = tabContent.querySelector('.tab-loader');
+  if (!loader) {
+    loader = document.createElement('div');
+    loader.className = 'tab-loader';
+    loader.innerHTML = `<div class="loading-spinner-container"><div class="loading-spinner"></div><span>Loading...</span></div>`;
+    tabContent.insertBefore(loader, tabContent.firstChild);
+  }
+  
+  loader.style.display = isLoading ? 'flex' : 'none';
+  
+  Array.from(tabContent.children).forEach(child => {
+    if (child !== loader) {
+      child.style.display = isLoading ? 'none' : '';
+    }
+  });
+}
+
 function navigateFromHash() {
   if (!currentSession) return;
   const { tab, subTab } = getHashState();
@@ -1684,21 +1831,14 @@ async function renderRewardsDashboard() {
   const choregroupID = currentSession.choregroup_id;
   const isParent = currentSession.role === "admin";
   
+  const tabContentId = isParent ? "parent-rewards-content" : "kid-rewards-content";
+  setTabLoading(tabContentId, true);
+  
   const listContainer = document.getElementById('parent-rewards-list');
   const fulfillContainer = document.getElementById('parent-rewards-fulfillment-list');
   const availableContainer = document.getElementById('kid-rewards-list');
   const myPendingContainer = document.getElementById('kid-rewards-my-pending-list');
   const voteContainer = document.getElementById('kid-rewards-pending-list');
-
-  const loadingHtml = `<div class="loading-spinner-container"><div class="loading-spinner"></div><span>Loading...</span></div>`;
-  if (isParent) {
-    if (listContainer) listContainer.innerHTML = loadingHtml;
-    if (fulfillContainer) fulfillContainer.innerHTML = loadingHtml;
-  } else {
-    if (availableContainer) availableContainer.innerHTML = loadingHtml;
-    if (myPendingContainer) myPendingContainer.innerHTML = loadingHtml;
-    if (voteContainer) voteContainer.innerHTML = loadingHtml;
-  }
   
   try {
     const rewards = await apiCall(`/choregroups/${choregroupID}/rewards`) || [];
@@ -1969,8 +2109,10 @@ async function renderRewardsDashboard() {
       
       updateLeaderboards();
     }
+    setTabLoading(tabContentId, false);
   } catch (err) {
     console.error("Failed to render rewards dashboard:", err);
+    setTabLoading(tabContentId, false);
   }
 }
 
@@ -2314,16 +2456,6 @@ function urlBase64ToUint8Array(base64String) {
   return outputArray;
 }
 
-window.notifyKidsOfNewTasks = async () => {
-  if (!currentSession || !currentSession.choregroup_id) return;
-  try {
-    await apiCall(`/choregroups/${currentSession.choregroup_id}/notify`, "POST");
-    showToast("🔔 Kids notified successfully! 🚀");
-  } catch (err) {
-    console.error("Failed to notify kids:", err);
-    showToast("⚠️ Failed to send notification.");
-  }
-};
 
 /* ==========================================================
    KID DELEGATED AUTHENTICATION LOGIC

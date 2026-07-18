@@ -100,7 +100,7 @@
       <div class="dashboard-container">
 
         <!-- PUSH NOTIFICATION BANNER -->
-        <div class="push-notification-banner" id="push-banner-parent" style="display: none; background: linear-gradient(135deg, var(--primary), var(--primary-hover)); color: white; border-radius: var(--radius-md); padding: 1rem; margin-bottom: 1.5rem; justify-content: space-between; align-items: center; box-shadow: var(--shadow-sm); gap: 1rem;">
+        <div class="push-notification-banner" id="push-banner-parent" style="display: none; background: linear-gradient(135deg, var(--primary-blue), var(--primary-blue-hover)); color: white; border-radius: var(--radius-md); padding: 1rem; margin-bottom: 1.5rem; justify-content: space-between; align-items: center; box-shadow: var(--shadow-sm); gap: 1rem;">
           <div style="display: flex; align-items: center; gap: 0.75rem; text-align: left;">
             <span style="font-size: 1.5rem;">🔔</span>
             <div>
@@ -109,7 +109,7 @@
             </div>
           </div>
           <div style="display: flex; gap: 0.5rem; align-items: center;">
-            <button class="btn btn-sm" onclick="enablePushNotificationsClicked()" style="background: white; color: var(--primary); border: none; font-weight: 600; padding: 0.4rem 1rem; border-radius: 6px; cursor: pointer; font-size: 0.8rem; box-shadow: 0 2px 4px rgba(0,0,0,0.1);">Enable</button>
+            <button class="btn btn-sm" onclick="enablePushNotificationsClicked()" style="background: white; color: var(--primary-blue); border: none; font-weight: 700; padding: 0.4rem 1rem; border-radius: 6px; cursor: pointer; font-size: 0.8rem; box-shadow: 0 2px 4px rgba(0,0,0,0.1);">Enable</button>
             <button onclick="dismissPushBanner()" style="background: none; border: none; color: white; opacity: 0.7; font-size: 1.25rem; cursor: pointer; padding: 0.25rem;">×</button>
           </div>
         </div>
@@ -136,7 +136,6 @@
               <div class="section-title-row" style="justify-content: center;">
                 <h3 style="display: none;">📋 Active Chores</h3>
                 <button class="btn btn-primary btn-sm" onclick="openAddChoreModal()"><span class="btn-plus-icon">+</span> Add Chore</button>
-                <button class="btn btn-outline btn-sm" onclick="notifyKidsOfNewTasks()" style="margin-left: 0.5rem;">🔔 Notify Kids</button>
               </div>
               <div class="chores-grid" id="parent-chores-list">
                 <!-- Dynamically populated with Edit/Delete capabilities -->
@@ -178,27 +177,29 @@
 
         <!-- Rewards Tab Content -->
         <div id="parent-rewards-content" class="tab-content" style="display: none;">
-          <div class="rewards-dashboard-header"
-            style="display: flex; justify-content: center; padding-bottom: 1rem; border-bottom: none;">
-            <button class="btn btn-primary btn-sm" onclick="openAddRewardModal()"><span class="btn-plus-icon">+</span> Add Reward</button>
-          </div>
-
-          <div class="parent-rewards-layout">
-            <!-- Top: Fulfillment section first -->
-            <div class="preview-card min-padding" id="parent-rewards-fulfillment-container" style="display: none;">
-              <h3 style="margin-bottom: 1rem; font-size: 1.1rem; color: var(--text-main);">📦 Ready for Fulfillment
-                <span class="badge" id="parent-fulfillment-rewards-count">0</span></h3>
-              <div class="pending-list" id="parent-rewards-fulfillment-list">
-                <!-- Dynamically populated approved purchases awaiting fulfillment -->
-              </div>
+          <div class="parent-rewards-wrapper">
+            <div class="rewards-dashboard-header"
+              style="display: flex; justify-content: center; padding-bottom: 1rem; border-bottom: none;">
+              <button class="btn btn-primary btn-sm" onclick="openAddRewardModal()"><span class="btn-plus-icon">+</span> Add Reward</button>
             </div>
 
-            <!-- Bottom: Available Rewards grid -->
-            <div>
-              <h3 style="display: none; margin-bottom: 1rem; font-size: 1.1rem; color: var(--text-muted);">🎁 Available
-                Rewards</h3>
-              <div class="chores-grid" id="parent-rewards-list">
-                <!-- Dynamically populated available rewards -->
+            <div class="parent-rewards-layout">
+              <!-- Top: Fulfillment section first -->
+              <div class="preview-card min-padding" id="parent-rewards-fulfillment-container" style="display: none;">
+                <h3 style="margin-bottom: 1rem; font-size: 1.1rem; color: var(--text-main);">📦 Ready for Fulfillment
+                  <span class="badge" id="parent-fulfillment-rewards-count">0</span></h3>
+                <div class="pending-list" id="parent-rewards-fulfillment-list">
+                  <!-- Dynamically populated approved purchases awaiting fulfillment -->
+                </div>
+              </div>
+
+              <!-- Bottom: Available Rewards grid -->
+              <div>
+                <h3 style="display: none; margin-bottom: 1rem; font-size: 1.1rem; color: var(--text-muted);">🎁 Available
+                  Rewards</h3>
+                <div class="chores-grid" id="parent-rewards-list">
+                  <!-- Dynamically populated available rewards -->
+                </div>
               </div>
             </div>
           </div>
@@ -215,7 +216,7 @@
       <div class="dashboard-container">
 
         <!-- PUSH NOTIFICATION BANNER -->
-        <div class="push-notification-banner" id="push-banner-kid" style="display: none; background: linear-gradient(135deg, var(--primary), var(--primary-hover)); color: white; border-radius: var(--radius-md); padding: 1rem; margin-bottom: 1.5rem; justify-content: space-between; align-items: center; box-shadow: var(--shadow-sm); gap: 1rem;">
+        <div class="push-notification-banner" id="push-banner-kid" style="display: none; background: linear-gradient(135deg, var(--primary-blue), var(--primary-blue-hover)); color: white; border-radius: var(--radius-md); padding: 1rem; margin-bottom: 1.5rem; justify-content: space-between; align-items: center; box-shadow: var(--shadow-sm); gap: 1rem;">
           <div style="display: flex; align-items: center; gap: 0.75rem; text-align: left;">
             <span style="font-size: 1.5rem;">🔔</span>
             <div>
@@ -224,7 +225,7 @@
             </div>
           </div>
           <div style="display: flex; gap: 0.5rem; align-items: center;">
-            <button class="btn btn-sm" onclick="enablePushNotificationsClicked()" style="background: white; color: var(--primary); border: none; font-weight: 600; padding: 0.4rem 1rem; border-radius: 6px; cursor: pointer; font-size: 0.8rem; box-shadow: 0 2px 4px rgba(0,0,0,0.1);">Enable</button>
+            <button class="btn btn-sm" onclick="enablePushNotificationsClicked()" style="background: white; color: var(--primary-blue); border: none; font-weight: 700; padding: 0.4rem 1rem; border-radius: 6px; cursor: pointer; font-size: 0.8rem; box-shadow: 0 2px 4px rgba(0,0,0,0.1);">Enable</button>
             <button onclick="dismissPushBanner()" style="background: none; border: none; color: white; opacity: 0.7; font-size: 1.25rem; cursor: pointer; padding: 0.25rem;">×</button>
           </div>
         </div>
@@ -376,6 +377,7 @@
 
       <form onsubmit="handleSaveChore(event)">
         <input type="hidden" id="chore-id-input">
+        <input type="hidden" id="chore-parent-task-id-input">
 
         <div class="form-group">
           <label for="chore-title-input">Chore Name</label>

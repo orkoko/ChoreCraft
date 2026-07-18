@@ -2515,6 +2515,84 @@ select:focus {
   box-shadow: none;
 }
 
+/* Locked / Blurred Chore Card Styles */
+.chore-card.locked-blur {
+  position: relative;
+  cursor: pointer;
+  overflow: hidden;
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+.chore-card.locked-blur:hover {
+  transform: translateY(-2px);
+  box-shadow: var(--shadow-md);
+}
+
+/* Blurring contents except locked overlay and timer badge */
+.chore-card.locked-blur .card-emoji-box,
+.chore-card.locked-blur .card-details > h3,
+.chore-card.locked-blur .card-details > p,
+.chore-card.locked-blur .card-points-badge,
+.chore-card.locked-blur .continuation-count-badge,
+.chore-card.locked-blur .btn-action-submit {
+  filter: blur(4px);
+  opacity: 0.55;
+  pointer-events: none;
+}
+
+/* Ensure timer badge inside blurred card stays unblurred */
+.chore-card.locked-blur .task-timer-badge {
+  filter: none !important;
+  opacity: 1 !important;
+  pointer-events: none;
+}
+
+.locked-overlay {
+  position: absolute;
+  bottom: 0.6rem;
+  left: 50%;
+  transform: translateX(-50%);
+  background: rgba(255, 255, 255, 0.95);
+  color: var(--primary-blue);
+  border: 2px solid var(--primary-blue);
+  padding: 0.3rem 0.75rem;
+  border-radius: 50px;
+  font-size: 0.8rem;
+  font-weight: 700;
+  z-index: 10;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  pointer-events: none;
+  white-space: nowrap;
+}
+
+/* Flashing warn highlight for locked card warning signaling */
+@keyframes flashing-warn {
+  0%, 100% {
+    background-color: #fff8e1;
+    outline-color: #fdd835;
+    outline-width: 3px;
+    outline-offset: 0px;
+  }
+  50% {
+    background-color: #ffee58;
+    outline-color: #f9a825;
+    outline-width: 5px;
+    outline-offset: 2px;
+  }
+}
+
+.chore-card.flashing-highlight {
+  animation: flashing-warn 0.5s ease-in-out infinite !important;
+  transition: none !important;
+  overflow: visible !important;
+  outline-style: solid !important;
+  outline-color: #fdd835 !important;
+  z-index: 100 !important;
+  position: relative !important;
+}
+
 /* --- Kid Rewards Tab: Single-column stacked layout --- */
 .kid-rewards-layout {
   display: flex;

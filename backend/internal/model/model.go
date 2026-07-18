@@ -38,6 +38,8 @@ type Task struct {
 	IsMandatory      bool       `json:"is_mandatory"`
 	Status           string     `json:"status"`
 	ExpiresAt        *time.Time `json:"expires_at,omitempty"`
+	ParentTaskID     *uuid.UUID `json:"parent_task_id,omitempty"`
+	ContinuationCount int        `json:"continuation_count"`
 }
 
 // TaskSubmission represents the task_submissions table.
@@ -128,6 +130,7 @@ type CreateTaskRequest struct {
 	IsMandatory      bool       `json:"is_mandatory"`
 	AssignedToUserID *uuid.UUID `json:"assigned_to_user_id,omitempty"`
 	ExpiresAt        *time.Time `json:"expires_at,omitempty"`
+	ParentTaskID     *uuid.UUID `json:"parent_task_id,omitempty"`
 }
 
 // UpdateTaskRequest defines the body for updating an existing task.
@@ -138,6 +141,7 @@ type UpdateTaskRequest struct {
 	IsMandatory      bool       `json:"is_mandatory"`
 	AssignedToUserID *uuid.UUID `json:"assigned_to_user_id,omitempty"`
 	ExpiresAt        *time.Time `json:"expires_at,omitempty"`
+	ParentTaskID     *uuid.UUID `json:"parent_task_id,omitempty"`
 }
 
 // UpdateSubmissionRequest defines the body for approving or rejecting a submission.

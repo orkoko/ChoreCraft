@@ -184,6 +184,12 @@ func (s *Service) CreateTask(ctx context.Context, choregroupID uuid.UUID, req mo
 	if req.IsMandatory {
 		req.PointsReward = 0
 	}
+	if req.ParentTaskID != nil {
+		parent, err := s.repo.GetTask(ctx, *req.ParentTaskID, choregroupID)
+		if err == nil && parent != nil && parent.AssignedToUserID != nil {
+			req.AssignedToUserID = parent.AssignedToUserID
+		}
+	}
 	title, needsAsync := s.ResolveEmoji(ctx, req.Title)
 	req.Title = title
 	task := &model.Task{
@@ -196,6 +202,7 @@ func (s *Service) CreateTask(ctx context.Context, choregroupID uuid.UUID, req mo
 		AssignedToUserID: req.AssignedToUserID,
 		Status:           "assigned", // Initial status for a new task
 		ExpiresAt:        req.ExpiresAt,
+		ParentTaskID:     req.ParentTaskID,
 	}
 	err := s.repo.CreateTask(ctx, task)
 	if err != nil {
@@ -229,6 +236,12 @@ func (s *Service) UpdateTask(ctx context.Context, adminUser model.User, taskID u
 	}
 	if req.IsMandatory {
 		req.PointsReward = 0
+	}
+	if req.ParentTaskID != nil {
+		parent, err := s.repo.GetTask(ctx, *req.ParentTaskID, adminUser.ChoreGroupID)
+		if err == nil && parent != nil && parent.AssignedToUserID != nil {
+			req.AssignedToUserID = parent.AssignedToUserID
+		}
 	}
 	origTitle := req.Title
 	title, needsAsync := s.ResolveEmoji(ctx, req.Title)
@@ -267,21 +280,56 @@ func (s *Service) DeleteTask(ctx context.Context, adminUser model.User, taskID u
 
 // ListTasks retrieves tasks based on the user's role.
 func (s *Service) ListTasks(ctx context.Context, user model.User) ([]model.Task, error) {
-	var tasks []model.Task
-	var err error
-	if user.Role == "admin" {
-		tasks, err = s.repo.ListAllTasksForChoreGroup(ctx, user.ChoreGroupID)
-	} else {
-		tasks, err = s.repo.ListTasksForUser(ctx, user.ChoreGroupID, user.ID)
-	}
+	// Always fetch all tasks for the choregroup
+	tasks, err := s.repo.ListAllTasksForChoreGroup(ctx, user.ChoreGroupID)
 	if err != nil {
 		return nil, err
 	}
+
+	// For kids, filter to only their relevant tasks
+	if user.Role != "admin" {
+		var filtered []model.Task
+		for _, t := range tasks {
+			if t.AssignedToUserID == nil || *t.AssignedToUserID == user.ID || t.Type == "cooperative" {
+				filtered = append(filtered, t)
+			}
+		}
+		tasks = filtered
+	}
+
+	// Fetch all tasks for this choregroup to check parent status and build continuation counts
+	allTasks, err := s.repo.ListAllTasksForChoreGroup(ctx, user.ChoreGroupID)
+	if err != nil {
+		return nil, err
+	}
+
+	// Create maps for efficient lookups
+	idToTask := make(map[uuid.UUID]model.Task)
+	parentToChildren := make(map[uuid.UUID][]model.Task)
+	for _, t := range allTasks {
+		idToTask[t.ID] = t
+		if t.ParentTaskID != nil {
+			parentToChildren[*t.ParentTaskID] = append(parentToChildren[*t.ParentTaskID], t)
+		}
+	}
+
+	// Calculate downstream continuation counts recursively
+	var countDescendants func(uuid.UUID) int
+	countDescendants = func(parentID uuid.UUID) int {
+		children := parentToChildren[parentID]
+		count := len(children)
+		for _, child := range children {
+			count += countDescendants(child.ID)
+		}
+		return count
+	}
+
 	now := time.Now()
 	for i := range tasks {
 		if tasks[i].Status == "assigned" && !tasks[i].IsMandatory && tasks[i].ExpiresAt != nil && tasks[i].ExpiresAt.Before(now) {
 			tasks[i].Status = "expired"
 		}
+		tasks[i].ContinuationCount = countDescendants(tasks[i].ID)
 	}
 	return tasks, nil
 }
@@ -373,13 +421,24 @@ func (s *Service) SubmitTask(ctx context.Context, taskID, userID, choregroupID u
 		return nil, errors.New("this task has expired and cannot be completed")
 	}
 
+	// If this task has a parent task, verify that the parent task is marked as done
+	if task.ParentTaskID != nil {
+		parent, err := s.repo.GetTask(ctx, *task.ParentTaskID, choregroupID)
+		if err != nil {
+			return nil, err
+		}
+		if parent.Status != "done" {
+			return nil, errors.New("you must complete the parent task first")
+		}
+	}
+
 	if !task.IsMandatory {
 		userTasks, err := s.repo.ListTasksForUser(ctx, task.ChoreGroupID, userID)
 		if err != nil {
 			return nil, err
 		}
 		for _, t := range userTasks {
-			if t.IsMandatory && t.Status == "assigned" {
+			if t.IsMandatory && (t.Status == "assigned" || t.Status == "pending_approval") {
 				return nil, errors.New("you must complete all mandatory tasks first")
 			}
 		}

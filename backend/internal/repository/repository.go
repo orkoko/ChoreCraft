@@ -142,15 +142,15 @@ func (r *Repository) GetChoreGroupByID(ctx context.Context, choregroupID uuid.UU
 
 // CreateTask creates a new task scoped to a choregroup.
 func (r *Repository) CreateTask(ctx context.Context, task *model.Task) error {
-	_, err := r.db.Exec(ctx, "INSERT INTO tasks (id, choregroup_id, title, type, points_reward, is_mandatory, assigned_to_user_id, status, expires_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)",
-		task.ID, task.ChoreGroupID, task.Title, task.Type, task.PointsReward, task.IsMandatory, task.AssignedToUserID, task.Status, task.ExpiresAt)
+	_, err := r.db.Exec(ctx, "INSERT INTO tasks (id, choregroup_id, title, type, points_reward, is_mandatory, assigned_to_user_id, status, expires_at, parent_task_id) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)",
+		task.ID, task.ChoreGroupID, task.Title, task.Type, task.PointsReward, task.IsMandatory, task.AssignedToUserID, task.Status, task.ExpiresAt, task.ParentTaskID)
 	return err
 }
 
 // UpdateTask updates an existing task, verified by choregroupID.
 func (r *Repository) UpdateTask(ctx context.Context, taskID, choregroupID uuid.UUID, req model.UpdateTaskRequest) error {
-	_, err := r.db.Exec(ctx, "UPDATE tasks SET title = $1, type = $2, points_reward = $3, is_mandatory = $4, assigned_to_user_id = $5, expires_at = $6 WHERE id = $7 AND choregroup_id = $8",
-		req.Title, req.Type, req.PointsReward, req.IsMandatory, req.AssignedToUserID, req.ExpiresAt, taskID, choregroupID)
+	_, err := r.db.Exec(ctx, "UPDATE tasks SET title = $1, type = $2, points_reward = $3, is_mandatory = $4, assigned_to_user_id = $5, expires_at = $6, parent_task_id = $7 WHERE id = $8 AND choregroup_id = $9",
+		req.Title, req.Type, req.PointsReward, req.IsMandatory, req.AssignedToUserID, req.ExpiresAt, req.ParentTaskID, taskID, choregroupID)
 	return err
 }
 
@@ -174,7 +174,7 @@ func (r *Repository) UpdateTaskStatus(ctx context.Context, taskID, choregroupID 
 // ListTasksForUser retrieves tasks for a specific user in a choregroup (public and assigned).
 func (r *Repository) ListTasksForUser(ctx context.Context, choregroupID, userID uuid.UUID) ([]model.Task, error) {
 	query := `
-		SELECT id, choregroup_id, title, type, points_reward, is_mandatory, assigned_to_user_id, status, expires_at
+		SELECT id, choregroup_id, title, type, points_reward, is_mandatory, assigned_to_user_id, status, expires_at, parent_task_id
 		FROM tasks
 		WHERE choregroup_id = $1 AND (assigned_to_user_id IS NULL OR assigned_to_user_id = $2)
 	`
@@ -187,7 +187,7 @@ func (r *Repository) ListTasksForUser(ctx context.Context, choregroupID, userID 
 	var tasks []model.Task
 	for rows.Next() {
 		var task model.Task
-		if err := rows.Scan(&task.ID, &task.ChoreGroupID, &task.Title, &task.Type, &task.PointsReward, &task.IsMandatory, &task.AssignedToUserID, &task.Status, &task.ExpiresAt); err != nil {
+		if err := rows.Scan(&task.ID, &task.ChoreGroupID, &task.Title, &task.Type, &task.PointsReward, &task.IsMandatory, &task.AssignedToUserID, &task.Status, &task.ExpiresAt, &task.ParentTaskID); err != nil {
 			return nil, err
 		}
 		tasks = append(tasks, task)
@@ -195,10 +195,10 @@ func (r *Repository) ListTasksForUser(ctx context.Context, choregroupID, userID 
 	return tasks, nil
 }
 
-// ListAllTasksForChoreGroup retrieves all tasks for a choregroup.
+// ListAllTasks for ChoreGroup retrieves all tasks for a choregroup.
 func (r *Repository) ListAllTasksForChoreGroup(ctx context.Context, choregroupID uuid.UUID) ([]model.Task, error) {
 	query := `
-		SELECT id, choregroup_id, title, type, points_reward, is_mandatory, assigned_to_user_id, status, expires_at
+		SELECT id, choregroup_id, title, type, points_reward, is_mandatory, assigned_to_user_id, status, expires_at, parent_task_id
 		FROM tasks
 		WHERE choregroup_id = $1
 	`
@@ -211,7 +211,7 @@ func (r *Repository) ListAllTasksForChoreGroup(ctx context.Context, choregroupID
 	var tasks []model.Task
 	for rows.Next() {
 		var task model.Task
-		if err := rows.Scan(&task.ID, &task.ChoreGroupID, &task.Title, &task.Type, &task.PointsReward, &task.IsMandatory, &task.AssignedToUserID, &task.Status, &task.ExpiresAt); err != nil {
+		if err := rows.Scan(&task.ID, &task.ChoreGroupID, &task.Title, &task.Type, &task.PointsReward, &task.IsMandatory, &task.AssignedToUserID, &task.Status, &task.ExpiresAt, &task.ParentTaskID); err != nil {
 			return nil, err
 		}
 		tasks = append(tasks, task)
@@ -246,8 +246,8 @@ func (r *Repository) MarkNotificationsViewed(ctx context.Context, userID uuid.UU
 // GetTask retrieves a task by ID and choregroupID.
 func (r *Repository) GetTask(ctx context.Context, id, choregroupID uuid.UUID) (*model.Task, error) {
 	var task model.Task
-	err := r.db.QueryRow(ctx, "SELECT id, choregroup_id, title, type, points_reward, is_mandatory, assigned_to_user_id, status, expires_at FROM tasks WHERE id = $1 AND choregroup_id = $2", id, choregroupID).Scan(
-		&task.ID, &task.ChoreGroupID, &task.Title, &task.Type, &task.PointsReward, &task.IsMandatory, &task.AssignedToUserID, &task.Status, &task.ExpiresAt)
+	err := r.db.QueryRow(ctx, "SELECT id, choregroup_id, title, type, points_reward, is_mandatory, assigned_to_user_id, status, expires_at, parent_task_id FROM tasks WHERE id = $1 AND choregroup_id = $2", id, choregroupID).Scan(
+		&task.ID, &task.ChoreGroupID, &task.Title, &task.Type, &task.PointsReward, &task.IsMandatory, &task.AssignedToUserID, &task.Status, &task.ExpiresAt, &task.ParentTaskID)
 	return &task, err
 }
 
