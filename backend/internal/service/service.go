@@ -203,6 +203,7 @@ func (s *Service) CreateTask(ctx context.Context, choregroupID uuid.UUID, req mo
 		Status:           "assigned", // Initial status for a new task
 		ExpiresAt:        req.ExpiresAt,
 		ParentTaskID:     req.ParentTaskID,
+		IconURL:          req.IconURL,
 	}
 	err := s.repo.CreateTask(ctx, task)
 	if err != nil {
@@ -482,6 +483,7 @@ func (s *Service) CreateReward(ctx context.Context, adminUser model.User, req mo
 		Description:  req.Description,
 		Cost:         req.Cost,
 		Type:         req.Type,
+		IconURL:      req.IconURL,
 	}
 	err := s.repo.CreateReward(ctx, reward)
 	if err != nil {

@@ -34,6 +34,192 @@ function parseChoreTitle(fullTitle) {
   const emoji = getRelevantEmoji(title);
   return { emoji, title };
 }
+
+function resolveIconUrl(url) {
+  if (!url) return '';
+  if (url.startsWith('http://') || url.startsWith('https://') || url.startsWith('data:')) {
+    return url;
+  }
+  if (window.location.protocol === 'file:') {
+    return `http://localhost:8080${url.startsWith('/') ? '' : '/'}${url}`;
+  }
+  return url;
+}
+
+// Render icon element (custom image URL if provided, otherwise fallback emoji)
+function renderItemIcon(item, fallbackEmoji) {
+  if (item && item.icon_url) {
+    const src = resolveIconUrl(item.icon_url);
+    const safeEmoji = escapeHTML(fallbackEmoji || "📋");
+    return `<img src="${escapeHTML(src)}" class="card-icon-img" alt="icon" onerror="this.onerror=null; this.parentElement.innerHTML='${safeEmoji}';" style="width: 100%; height: 100%; object-fit: cover; object-position: center; border-radius: 6px;">`;
+  }
+  return fallbackEmoji || "📋";
+}
+
+// Handle icon file selection and upload
+async function handleIconUpload(event, type) {
+  const file = event.target.files && event.target.files[0];
+  if (!file) return;
+
+  const formData = new FormData();
+  formData.append("image", file);
+
+  try {
+    const groupId = currentSession ? currentSession.choregroup_id : null;
+    const url = groupId ? `/choregroups/${groupId}/upload` : '/upload';
+    
+    const apiBase = getApiBase();
+    const response = await fetch(`${apiBase}${url}`, {
+      method: "POST",
+      body: formData,
+      credentials: "include"
+    });
+
+    if (!response.ok) {
+      const errText = await response.text();
+      throw new Error(errText || "Upload failed");
+    }
+
+    const data = await response.json();
+    if (data && data.icon_url) {
+      document.getElementById(`${type}-icon-url-input`).value = data.icon_url;
+      const previewImg = document.getElementById(`${type}-icon-preview-img`);
+      if (previewImg) previewImg.src = resolveIconUrl(data.icon_url);
+      const previewBox = document.getElementById(`${type}-icon-preview-container`);
+      if (previewBox) previewBox.style.display = "flex";
+      showToast("Custom icon uploaded! 🖼️");
+    }
+  } catch (err) {
+    alert("Failed to upload icon: " + err.message);
+  } finally {
+    if (event.target) event.target.value = "";
+  }
+}
+
+// Clear custom icon upload selection
+function clearIconUpload(type) {
+  const fileInput = document.getElementById(`${type}-icon-file-input`);
+  const urlInput = document.getElementById(`${type}-icon-url-input`);
+  const previewImg = document.getElementById(`${type}-icon-preview-img`);
+  const previewBox = document.getElementById(`${type}-icon-preview-container`);
+
+  if (fileInput) fileInput.value = "";
+  if (urlInput) urlInput.value = "";
+  if (previewImg) previewImg.src = "";
+  if (previewBox) previewBox.style.display = "none";
+}
+
+// Camera photo capture logic
+let activeCameraStream = null;
+let cameraTargetType = null;
+
+async function openCameraModal(type) {
+  cameraTargetType = type;
+  const modal = document.getElementById("camera-modal");
+  const video = document.getElementById("camera-video");
+  const errorMsg = document.getElementById("camera-error-msg");
+
+  if (errorMsg) errorMsg.style.display = "none";
+  if (video) video.style.display = "block";
+
+  try {
+    const constraints = {
+      video: {
+        facingMode: { ideal: "environment" },
+        width: { ideal: 1280 },
+        height: { ideal: 720 }
+      }
+    };
+    activeCameraStream = await navigator.mediaDevices.getUserMedia(constraints);
+    if (video) {
+      video.srcObject = activeCameraStream;
+    }
+  } catch (err) {
+    console.error("Camera access error:", err);
+    try {
+      activeCameraStream = await navigator.mediaDevices.getUserMedia({ video: true });
+      if (video) {
+        video.srcObject = activeCameraStream;
+      }
+    } catch (fallbackErr) {
+      console.error("Fallback camera access error:", fallbackErr);
+      if (errorMsg) errorMsg.style.display = "flex";
+      if (video) video.style.display = "none";
+    }
+  }
+
+  if (modal) modal.classList.add("active");
+}
+
+function closeCameraModal() {
+  if (activeCameraStream) {
+    activeCameraStream.getTracks().forEach(track => track.stop());
+    activeCameraStream = null;
+  }
+  const video = document.getElementById("camera-video");
+  if (video) video.srcObject = null;
+
+  const modal = document.getElementById("camera-modal");
+  if (modal) modal.classList.remove("active");
+}
+
+async function snapCameraPhoto() {
+  const video = document.getElementById("camera-video");
+  const canvas = document.getElementById("camera-canvas");
+  if (!video || !canvas || !cameraTargetType) return;
+
+  const context = canvas.getContext("2d");
+  const width = video.videoWidth || 640;
+  const height = video.videoHeight || 480;
+
+  canvas.width = width;
+  canvas.height = height;
+  context.drawImage(video, 0, 0, width, height);
+
+  canvas.toBlob(async (blob) => {
+    if (!blob) {
+      alert("Failed to capture photo frame");
+      return;
+    }
+
+    const file = new File([blob], `photo_${Date.now()}.png`, { type: "image/png" });
+    const formData = new FormData();
+    formData.append("image", file);
+
+    try {
+      const groupId = currentSession ? currentSession.choregroup_id : null;
+      const url = groupId ? `/choregroups/${groupId}/upload` : '/upload';
+      
+      const apiBase = getApiBase();
+      const response = await fetch(`${apiBase}${url}`, {
+        method: "POST",
+        body: formData,
+        credentials: "include"
+      });
+
+      if (!response.ok) {
+        const errText = await response.text();
+        throw new Error(errText || "Upload failed");
+      }
+
+      const data = await response.json();
+      if (data && data.icon_url) {
+        const type = cameraTargetType;
+        document.getElementById(`${type}-icon-url-input`).value = data.icon_url;
+        const previewImg = document.getElementById(`${type}-icon-preview-img`);
+        if (previewImg) previewImg.src = resolveIconUrl(data.icon_url);
+        const previewBox = document.getElementById(`${type}-icon-preview-container`);
+        if (previewBox) previewBox.style.display = "flex";
+        showToast("Photo captured and set as icon! 📸");
+      }
+    } catch (err) {
+      alert("Failed to upload captured photo: " + err.message);
+    } finally {
+      closeCameraModal();
+    }
+  }, "image/png");
+}
+
 // Toggle Assignee select availability based on Task Type
 function toggleChoreType(type) {
   const assigneeSelect = document.getElementById("chore-assignee-input");
@@ -693,7 +879,7 @@ async function renderParentDashboard() {
       const coinHtml = task.type === "cooperative" ? `<span class="points-coin coop-theme">🐱🐱</span>` : `<span class="points-coin">🐱</span>`;
       card.innerHTML = `
         <div class="card-top">
-          <div class="card-emoji-box">${emoji}</div>
+          <div class="card-emoji-box">${renderItemIcon(task, emoji)}</div>
           <div class="card-details">
             <h3>${displayTitle}</h3>
             ${assigneeHtml}
@@ -750,7 +936,7 @@ async function renderParentDashboard() {
           <span class="sub-pts">+${task.points_reward} ${task.type === 'cooperative' ? '<span class="points-coin coop-theme">🐱🐱</span>' : '<span class="points-coin">🐱</span>'}</span>
         </div>
         <div class="sub-chore">
-          <span class="sub-chore-emoji">${emoji}</span>
+          <span class="sub-chore-emoji">${renderItemIcon(task, emoji)}</span>
           <span>${displayTitle}</span>
         </div>
         <div class="sub-actions">
@@ -875,6 +1061,7 @@ async function openAddChoreModal(parentTaskId = "") {
     assigneeSelect.disabled = false;
   }
   
+  clearIconUpload("chore");
   document.getElementById("chore-modal").classList.add("active");
 }
 
@@ -910,6 +1097,7 @@ async function handleSaveChore(e) {
     expiresAt = new Date(Date.now() + durationMs).toISOString();
   }
 
+  const iconUrl = document.getElementById("chore-icon-url-input") ? (document.getElementById("chore-icon-url-input").value || null) : null;
   const fullTitle = titleVal;
   const groupId = currentSession.choregroup_id;
   
@@ -923,7 +1111,8 @@ async function handleSaveChore(e) {
         type: type,
         is_mandatory: isMandatory,
         expires_at: expiresAt,
-        parent_task_id: parentTaskId
+        parent_task_id: parentTaskId,
+        icon_url: iconUrl
       });
       showToast("Chore updated successfully!");
     } else {
@@ -935,7 +1124,8 @@ async function handleSaveChore(e) {
         type: type,
         is_mandatory: isMandatory,
         expires_at: expiresAt,
-        parent_task_id: parentTaskId
+        parent_task_id: parentTaskId,
+        icon_url: iconUrl
       });
       showToast("Chore created on backend server!");
     }
@@ -1008,6 +1198,14 @@ async function openEditChoreModal(taskId) {
     }
   } else {
     assigneeSelect.disabled = false;
+  }
+  
+  if (task.icon_url) {
+    document.getElementById("chore-icon-url-input").value = task.icon_url;
+    document.getElementById("chore-icon-preview-img").src = task.icon_url;
+    document.getElementById("chore-icon-preview-container").style.display = "flex";
+  } else {
+    clearIconUpload("chore");
   }
   
   document.getElementById("chore-modal").classList.add("active");
@@ -1288,7 +1486,7 @@ async function renderKidDashboard() {
 
       card.innerHTML = `
         <div class="card-top">
-          <div class="card-emoji-box">${emoji}</div>
+          <div class="card-emoji-box">${renderItemIcon(task, emoji)}</div>
           <div class="card-details">
             <h3 ${isDisabled ? 'style="color: #999;"' : ''}>${displayTitle}</h3>
             ${timerHtml}
@@ -1911,7 +2109,7 @@ async function renderRewardsDashboard() {
             return `
               <div class="reward-card">
                 <div class="card-top">
-                  <div class="card-emoji-box">${emoji}</div>
+                  <div class="card-emoji-box">${renderItemIcon(reward, emoji)}</div>
                   <div class="card-details">
                     <h3>${escapeHTML(title)}</h3>
                     <p>${escapeHTML(reward.description || '')}</p>
@@ -1953,7 +2151,7 @@ async function renderRewardsDashboard() {
             return `
               <div class="pending-item">
                 <div class="card-top">
-                  <div class="card-emoji-box">${emoji}</div>
+                  <div class="card-emoji-box">${renderItemIcon(reward, emoji)}</div>
                   <div class="card-details">
                     <h3>${escapeHTML(title)}</h3>
                     <p>Purchased by <strong>${escapeHTML(buyer)}</strong></p>
@@ -2009,7 +2207,7 @@ async function renderRewardsDashboard() {
             return `
               <div class="reward-card ${buyDisabled ? 'disabled' : ''}">
                 <div class="card-top">
-                  <div class="card-emoji-box">${emoji}</div>
+                  <div class="card-emoji-box">${renderItemIcon(reward, emoji)}</div>
                   <div class="card-details">
                     <h3>${escapeHTML(title)}</h3>
                     <p>${escapeHTML(reward.description || '')}</p>
@@ -2047,7 +2245,7 @@ async function renderRewardsDashboard() {
             return `
               <div class="pending-item">
                 <div class="card-top">
-                  <div class="card-emoji-box">${emoji}</div>
+                  <div class="card-emoji-box">${renderItemIcon(reward, emoji)}</div>
                   <div class="card-details">
                     <h3>${escapeHTML(title)}</h3>
                     <p>${statusLabel}</p>
@@ -2086,7 +2284,7 @@ async function renderRewardsDashboard() {
             return `
               <div class="pending-item">
                 <div class="card-top">
-                  <div class="card-emoji-box">${emoji}</div>
+                  <div class="card-emoji-box">${renderItemIcon(reward, emoji)}</div>
                   <div class="card-details">
                     <h3>${escapeHTML(title)}</h3>
                     <p>Initiated by <strong>${escapeHTML(requester)}</strong></p>
@@ -2154,6 +2352,7 @@ async function openAddRewardModal() {
     }
   }
   
+  clearIconUpload("reward");
   document.getElementById("reward-modal").classList.add("active");
 }
 
@@ -2183,6 +2382,14 @@ async function openEditRewardModal(rewardId) {
       });
     }
     
+    if (reward.icon_url) {
+      document.getElementById("reward-icon-url-input").value = reward.icon_url;
+      document.getElementById("reward-icon-preview-img").src = reward.icon_url;
+      document.getElementById("reward-icon-preview-container").style.display = "flex";
+    } else {
+      clearIconUpload("reward");
+    }
+    
     document.getElementById("reward-modal").classList.add("active");
   } catch (err) {
     alert("Could not load reward details: " + err.message);
@@ -2198,13 +2405,15 @@ async function handleSaveReward(e) {
   const cost = parseInt(document.getElementById("reward-cost-input").value);
   const type = document.getElementById("reward-type-input").value;
   const assigneeId = document.getElementById("reward-assignee-input").value;
+  const iconUrl = document.getElementById("reward-icon-url-input") ? (document.getElementById("reward-icon-url-input").value || null) : null;
   
   const payload = {
     name: name,
     description: description || null,
     cost: cost,
     type: type,
-    assigned_to_user_id: (type === 'individual' && assigneeId) ? assigneeId : null
+    assigned_to_user_id: (type === 'individual' && assigneeId) ? assigneeId : null,
+    icon_url: iconUrl
   };
   
   const choregroupID = currentSession.choregroup_id;
@@ -2463,7 +2672,6 @@ function urlBase64ToUint8Array(base64String) {
 
 window.shareAppWithFriend = async () => {
   const homepageLink = `${window.location.origin}${window.location.pathname}`;
-  
   const shareTitle = "ChoreCraft - Fun Household Chore Management";
   const shareText = "Try ChoreCraft! It's an amazing way to manage household tasks and rewards: ";
 
@@ -2471,8 +2679,7 @@ window.shareAppWithFriend = async () => {
     try {
       await navigator.share({
         title: shareTitle,
-        text: shareText,
-        url: homepageLink
+        text: `${shareText}${homepageLink}`
       });
       showToast("App shared successfully! 🚀");
       return;
@@ -2484,15 +2691,8 @@ window.shareAppWithFriend = async () => {
     }
   }
 
-  const fullShareText = `${shareText}${homepageLink}`;
-  if (navigator.clipboard && navigator.clipboard.writeText) {
-    await navigator.clipboard.writeText(fullShareText).catch(() => {
-      copyToClipboardFallback(fullShareText);
-    });
-  } else {
-    copyToClipboardFallback(fullShareText);
-  }
-  showToast("📋 Share link copied to clipboard!");
+  const text = encodeURIComponent(`${shareText}${homepageLink}`);
+  window.location.href = `whatsapp://send?text=${text}`;
 };
 
 async function generateKidAccessLink(userID, username = "", role = "user") {
@@ -2606,8 +2806,11 @@ function getShareLink() {
 function shareViaWhatsApp() {
   const link = getShareLink();
   if (!link) return;
-  const text = encodeURIComponent("Tap this link to log in to ChoreCraft! \ud83c\udfe0\u2728\n" + link);
-  window.open(`https://wa.me/?text=${text}`, "_blank");
+  const text = encodeURIComponent("Tap this link to log in to ChoreCraft! 🏠✨\n" + link);
+  window.location.href = `whatsapp://send?text=${text}`;
+  setTimeout(() => {
+    window.open(`https://api.whatsapp.com/send?text=${text}`, "_blank");
+  }, 1200);
   closeModal("login-link-modal");
 }
 
@@ -2615,16 +2818,18 @@ function shareViaSMS() {
   const link = getShareLink();
   if (!link) return;
   const text = encodeURIComponent("Log in to ChoreCraft: " + link);
-  window.open(`sms:?body=${text}`, "_self");
+  const ua = navigator.userAgent || "";
+  const smsPrefix = /iP(hone|od|ad)/i.test(ua) ? "sms:&body=" : "sms:?body=";
+  window.location.href = `${smsPrefix}${text}`;
   closeModal("login-link-modal");
 }
 
 function shareViaEmail() {
   const link = getShareLink();
   if (!link) return;
-  const subject = encodeURIComponent("ChoreCraft - Kid Access Link");
-  const body = encodeURIComponent("Tap this link to log in to ChoreCraft! \ud83c\udfe0\u2728\n\n" + link + "\n\nThis link is valid for 5 minutes.");
-  window.open(`mailto:?subject=${subject}&body=${body}`, "_self");
+  const subject = encodeURIComponent("ChoreCraft - Access Link");
+  const body = encodeURIComponent("Tap this link to log in to ChoreCraft! 🏠✨\n\n" + link + "\n\nThis link is valid for 5 minutes.");
+  window.location.href = `mailto:?subject=${subject}&body=${body}`;
   closeModal("login-link-modal");
 }
 
@@ -2688,3 +2893,8 @@ window.dismissPushBanner = dismissPushBanner;
 window.deleteFamilyMember = deleteFamilyMember;
 window.openChangePasswordModal = openChangePasswordModal;
 window.handleSavePassword = handleSavePassword;
+window.handleIconUpload = handleIconUpload;
+window.clearIconUpload = clearIconUpload;
+window.openCameraModal = openCameraModal;
+window.closeCameraModal = closeCameraModal;
+window.snapCameraPhoto = snapCameraPhoto;

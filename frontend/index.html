@@ -451,6 +451,24 @@
             style="font-size: 0.85rem; color: var(--text-muted); display: block; margin-top: 0.25rem;"></span>
         </div>
 
+        <div class="form-group" style="margin-top: 1rem;">
+          <label>Custom Icon Image (Optional)</label>
+          <div style="display: flex; gap: 0.5rem; margin-top: 0.25rem;">
+            <button type="button" class="btn btn-outline btn-sm" onclick="document.getElementById('chore-icon-file-input').click()" style="flex: 1; display: flex; align-items: center; justify-content: center; gap: 0.4rem;">
+              📁 Upload File
+            </button>
+            <button type="button" class="btn btn-outline btn-sm" onclick="openCameraModal('chore')" style="flex: 1; display: flex; align-items: center; justify-content: center; gap: 0.4rem; color: var(--primary-color); border-color: var(--primary-color);">
+              📷 Take Photo
+            </button>
+          </div>
+          <input type="file" id="chore-icon-file-input" accept="image/*" onchange="handleIconUpload(event, 'chore')" style="display: none;">
+          <input type="hidden" id="chore-icon-url-input">
+          <div id="chore-icon-preview-container" class="icon-preview-box" style="display: none; align-items: center; gap: 0.75rem; margin-top: 0.5rem; padding: 0.5rem; border-radius: var(--radius-lg); background: var(--bg-hover);">
+            <img id="chore-icon-preview-img" src="" alt="Icon Preview" style="width: 48px; height: 48px; object-fit: cover; object-position: center; border-radius: 8px; border: 2px solid var(--primary-color);">
+            <button type="button" class="btn btn-outline btn-sm" onclick="clearIconUpload('chore')">Remove Image</button>
+          </div>
+        </div>
+
         <button type="submit" class="btn btn-primary btn-block" style="margin-top: 1.5rem;">Save</button>
       </form>
     </div>
@@ -495,6 +513,24 @@
               <option value="">-- Open to all members --</option>
               <!-- Populated by JS -->
             </select>
+          </div>
+        </div>
+
+        <div class="form-group" style="margin-top: 1rem;">
+          <label>Custom Icon Image (Optional)</label>
+          <div style="display: flex; gap: 0.5rem; margin-top: 0.25rem;">
+            <button type="button" class="btn btn-outline btn-sm" onclick="document.getElementById('reward-icon-file-input').click()" style="flex: 1; display: flex; align-items: center; justify-content: center; gap: 0.4rem;">
+              📁 Upload File
+            </button>
+            <button type="button" class="btn btn-outline btn-sm" onclick="openCameraModal('reward')" style="flex: 1; display: flex; align-items: center; justify-content: center; gap: 0.4rem; color: var(--primary-color); border-color: var(--primary-color);">
+              📷 Take Photo
+            </button>
+          </div>
+          <input type="file" id="reward-icon-file-input" accept="image/*" onchange="handleIconUpload(event, 'reward')" style="display: none;">
+          <input type="hidden" id="reward-icon-url-input">
+          <div id="reward-icon-preview-container" class="icon-preview-box" style="display: none; align-items: center; gap: 0.75rem; margin-top: 0.5rem; padding: 0.5rem; border-radius: var(--radius-lg); background: var(--bg-hover);">
+            <img id="reward-icon-preview-img" src="" alt="Icon Preview" style="width: 48px; height: 48px; object-fit: cover; object-position: center; border-radius: 8px; border: 2px solid var(--primary-color);">
+            <button type="button" class="btn btn-outline btn-sm" onclick="clearIconUpload('reward')">Remove Image</button>
           </div>
         </div>
 
@@ -695,6 +731,28 @@
       }
     });
   </script>
+  <!-- CAMERA PHOTO CAPTURE MODAL -->
+  <div class="modal-backdrop" id="camera-modal" style="z-index: 1100;">
+    <div class="modal-card" style="max-width: 440px; text-align: center; padding: 1.5rem;">
+      <button class="modal-close-btn" onclick="closeCameraModal()">×</button>
+      <h3 style="margin-bottom: 0.25rem;">📷 Take Photo</h3>
+      <p style="font-size: 0.85rem; color: var(--text-muted); margin-bottom: 1rem;">Position item in the viewfinder and tap Snap Photo!</p>
+
+      <div class="camera-viewport-container" style="position: relative; width: 100%; height: 280px; background: #0f172a; border-radius: var(--radius-lg); overflow: hidden; margin-bottom: 1rem; border: 2px solid var(--border-color); display: flex; align-items: center; justify-content: center;">
+        <video id="camera-video" autoplay playsinline style="width: 100%; height: 100%; object-fit: cover;"></video>
+        <canvas id="camera-canvas" style="display: none;"></canvas>
+        <div id="camera-error-msg" style="display: none; position: absolute; inset: 0; padding: 1.5rem; align-items: center; justify-content: center; text-align: center; color: #ef4444; font-weight: 600; font-size: 0.9rem; background: #0f172a;">
+          Unable to access camera. Please allow camera permissions in your browser settings.
+        </div>
+      </div>
+
+      <div style="display: flex; gap: 0.75rem; justify-content: center;">
+        <button type="button" class="btn btn-outline" onclick="closeCameraModal()" style="flex: 1;">Cancel</button>
+        <button type="button" class="btn btn-primary" onclick="snapCameraPhoto()" style="flex: 1; font-weight: bold;">📸 Snap Photo</button>
+      </div>
+    </div>
+  </div>
+
 </body>
 
 </html>

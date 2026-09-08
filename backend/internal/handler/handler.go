@@ -5,7 +5,10 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
+	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -57,6 +60,13 @@ func (a *API) RegisterRoutes(r *chi.Mux) {
 	r.Post("/api/users", a.addUser)
 	r.Post("/api/login/delegated", a.loginDelegated)
 	r.Get("/swagger/*", httpSwagger.WrapHandler)
+	r.Post("/api/upload", a.uploadIcon)
+
+	// Static file server for uploaded icons
+	uploadDir := "./uploads"
+	_ = os.MkdirAll(uploadDir, 0755)
+	r.Handle("/uploads/*", http.StripPrefix("/uploads/", http.FileServer(http.Dir(uploadDir))))
+	r.Handle("/api/uploads/*", http.StripPrefix("/api/uploads/", http.FileServer(http.Dir(uploadDir))))
 
 	// Protected routes
 	r.Route("/api/choregroups/{choregroupID}", func(r chi.Router) {
@@ -94,7 +104,65 @@ func (a *API) RegisterRoutes(r *chi.Mux) {
 		r.Post("/purchases/{purchaseID}/approvals", a.createApproval)
 		r.Put("/purchases/{purchaseID}/status", a.updatePurchaseStatus)
 		r.Delete("/purchases/{purchaseID}", a.cancelPurchase)
+		// Uploads
+		r.Post("/upload", a.uploadIcon)
 	})
+}
+
+// uploadIcon handles image file uploads for custom task and reward icons.
+func (a *API) uploadIcon(w http.ResponseWriter, r *http.Request) {
+	// Limit request body size to 10MB
+	if err := r.ParseMultipartForm(10 << 20); err != nil {
+		http.Error(w, "File too large (max 10MB)", http.StatusBadRequest)
+		return
+	}
+
+	file, header, err := r.FormFile("image")
+	if err != nil {
+		file, header, err = r.FormFile("file")
+		if err != nil {
+			http.Error(w, "Missing image file in request (use 'image' or 'file' form field)", http.StatusBadRequest)
+			return
+		}
+	}
+	defer file.Close()
+
+	ext := strings.ToLower(filepath.Ext(header.Filename))
+	contentType := header.Header.Get("Content-Type")
+	allowedExts := map[string]bool{".png": true, ".jpg": true, ".jpeg": true, ".webp": true, ".gif": true, ".svg": true}
+	if !allowedExts[ext] && !strings.HasPrefix(contentType, "image/") {
+		http.Error(w, "Invalid file format. Only image files (PNG, JPG, WEBP, GIF, SVG) are allowed.", http.StatusBadRequest)
+		return
+	}
+	if ext == "" {
+		ext = ".png"
+	}
+
+	uploadDir := "./uploads"
+	if err := os.MkdirAll(uploadDir, 0755); err != nil {
+		http.Error(w, "Failed to create uploads directory", http.StatusInternalServerError)
+		return
+	}
+
+	filename := fmt.Sprintf("%s%s", uuid.New().String(), ext)
+	dstPath := filepath.Join(uploadDir, filename)
+
+	dst, err := os.Create(dstPath)
+	if err != nil {
+		http.Error(w, "Failed to save file", http.StatusInternalServerError)
+		return
+	}
+	defer dst.Close()
+
+	if _, err := io.Copy(dst, file); err != nil {
+		http.Error(w, "Failed to write file contents", http.StatusInternalServerError)
+		return
+	}
+
+	iconURL := fmt.Sprintf("/uploads/%s", filename)
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusCreated)
+	json.NewEncoder(w).Encode(map[string]string{"icon_url": iconURL})
 }
 
 // signup godoc
@@ -828,7 +896,7 @@ func corsMiddleware(next http.Handler) http.Handler {
 func secureHeadersMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Strict-Transport-Security", "max-age=63072000; includeSubDomains; preload")
-		w.Header().Set("Content-Security-Policy", "default-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; script-src 'self' 'unsafe-inline' 'unsafe-eval'; connect-src 'self' http://localhost:8080 ws://localhost:8080 http://localhost:5173 ws://localhost:5173 http://127.0.0.1:8080 ws://127.0.0.1:8080; img-src 'self' data:;")
+		w.Header().Set("Content-Security-Policy", "default-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; script-src 'self' 'unsafe-inline' 'unsafe-eval'; connect-src 'self' http://localhost:8080 ws://localhost:8080 http://localhost:5173 ws://localhost:5173 http://127.0.0.1:8080 ws://127.0.0.1:8080; img-src 'self' data: blob: http: https:;")
 		w.Header().Set("X-Frame-Options", "DENY")
 		w.Header().Set("X-Content-Type-Options", "nosniff")
 		w.Header().Set("Referrer-Policy", "strict-origin-when-cross-origin")

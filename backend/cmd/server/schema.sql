@@ -92,3 +92,8 @@ CREATE TABLE IF NOT EXISTS push_subscriptions (
 
 -- Migration to support task dependencies
 ALTER TABLE tasks ADD COLUMN IF NOT EXISTS parent_task_id UUID REFERENCES tasks(id) ON DELETE SET NULL;
+
+-- Migration to support custom uploaded icon URLs
+ALTER TABLE tasks ADD COLUMN IF NOT EXISTS icon_url TEXT;
+ALTER TABLE rewards ADD COLUMN IF NOT EXISTS icon_url TEXT;
+

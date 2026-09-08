@@ -40,6 +40,7 @@ type Task struct {
 	ExpiresAt        *time.Time `json:"expires_at,omitempty"`
 	ParentTaskID     *uuid.UUID `json:"parent_task_id,omitempty"`
 	ContinuationCount int        `json:"continuation_count"`
+	IconURL          *string    `json:"icon_url,omitempty"`
 }
 
 // TaskSubmission represents the task_submissions table.
@@ -60,6 +61,7 @@ type Reward struct {
 	Cost             int        `json:"cost"`
 	Type             string     `json:"type"`
 	AssignedToUserID *uuid.UUID `json:"assigned_to_user_id,omitempty"`
+	IconURL          *string    `json:"icon_url,omitempty"`
 }
 
 // RewardPurchase represents the reward_purchases table.
@@ -131,6 +133,7 @@ type CreateTaskRequest struct {
 	AssignedToUserID *uuid.UUID `json:"assigned_to_user_id,omitempty"`
 	ExpiresAt        *time.Time `json:"expires_at,omitempty"`
 	ParentTaskID     *uuid.UUID `json:"parent_task_id,omitempty"`
+	IconURL          *string    `json:"icon_url,omitempty"`
 }
 
 // UpdateTaskRequest defines the body for updating an existing task.
@@ -142,6 +145,7 @@ type UpdateTaskRequest struct {
 	AssignedToUserID *uuid.UUID `json:"assigned_to_user_id,omitempty"`
 	ExpiresAt        *time.Time `json:"expires_at,omitempty"`
 	ParentTaskID     *uuid.UUID `json:"parent_task_id,omitempty"`
+	IconURL          *string    `json:"icon_url,omitempty"`
 }
 
 // UpdateSubmissionRequest defines the body for approving or rejecting a submission.
@@ -162,6 +166,7 @@ type CreateRewardRequest struct {
 	Cost             int        `json:"cost"`
 	Type             string     `json:"type"`
 	AssignedToUserID *uuid.UUID `json:"assigned_to_user_id,omitempty"`
+	IconURL          *string    `json:"icon_url,omitempty"`
 }
 
 // CreatePurchaseRequest defines the body for creating a new reward purchase.
