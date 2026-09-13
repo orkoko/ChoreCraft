@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log/slog"
 	"math"
+	"math/rand/v2"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -31,6 +32,7 @@ var ErrTaskAlreadyApproved = errors.New("task has already been approved")
 var ErrNoPendingSubmission = errors.New("no pending submission found for this task")
 var ErrInsufficientPoints = errors.New("insufficient points")
 var ErrAlreadyVoted = errors.New("user has already voted on this purchase")
+var ErrNoSpinsAvailable = repository.ErrNoSpinsAvailable
 
 // Round-robin counter for distributing AI requests across models
 var aiModelCounter uint64
@@ -115,11 +117,13 @@ func (s *Service) Login(ctx context.Context, choregroupName, username, password 
 		return model.LoginResponse{}, ErrInvalidCredentials
 	}
 	return model.LoginResponse{
-		UserID:         user.ID,
-		Username:       user.Username,
-		ChoreGroupID:   user.ChoreGroupID,
-		ChoreGroupName: group.Name,
-		Role:           user.Role,
+		UserID:                user.ID,
+		Username:              user.Username,
+		ChoreGroupID:          user.ChoreGroupID,
+		ChoreGroupName:        group.Name,
+		Role:                  user.Role,
+		HasClaimedWelcomeSpin: user.HasClaimedWelcomeSpin,
+		ProfileImageURL:       user.ProfileImageURL,
 	}, nil
 }
 
@@ -191,6 +195,33 @@ func (s *Service) UpdateUserPassword(ctx context.Context, loggedInUser model.Use
 	}
 
 	return s.repo.UpdateUserPassword(ctx, targetUserID, loggedInUser.ChoreGroupID, passwordHash)
+}
+
+// UpdateUserProfileImage updates a user's avatar / profile image URL.
+func (s *Service) UpdateUserProfileImage(ctx context.Context, loggedInUser model.User, targetUserID uuid.UUID, avatarURL string) error {
+	isSelf := loggedInUser.ID == targetUserID
+	isAdmin := loggedInUser.Role == "admin"
+
+	if !isSelf && !isAdmin {
+		return ErrForbidden
+	}
+
+	targetUser, err := s.repo.GetUserByID(ctx, targetUserID)
+	if err != nil {
+		return err
+	}
+
+	if targetUser.ChoreGroupID != loggedInUser.ChoreGroupID {
+		return ErrForbidden
+	}
+
+	var urlPtr *string
+	trimmed := strings.TrimSpace(avatarURL)
+	if trimmed != "" {
+		urlPtr = &trimmed
+	}
+
+	return s.repo.UpdateUserProfileImage(ctx, targetUserID, urlPtr)
 }
 
 
@@ -460,10 +491,23 @@ func (s *Service) UpdateTaskStatusByAdmin(ctx context.Context, adminUser model.U
 	}
 
 	if action == "approve" {
-		err = s.repo.UpdatePoints(ctx, task.ChoreGroupID, submission.SubmittedBy, task.PointsReward, task.Type)
+		pointsToAward := task.PointsReward
+		// Check if user has double coins bonus active for today
+		// (Mandatory tasks have 0 reward and must not consume or be counted as the 2x coins reward)
+		if !task.IsMandatory && task.PointsReward > 0 {
+			doubleActive, err := s.repo.CheckAndConsumeDoubleCoins(ctx, task.ChoreGroupID, submission.SubmittedBy)
+			if err == nil && doubleActive {
+				pointsToAward = task.PointsReward * 2
+			}
+		}
+
+		err = s.repo.UpdatePoints(ctx, task.ChoreGroupID, submission.SubmittedBy, pointsToAward, task.Type)
 		if err != nil {
 			return err
 		}
+		// Record daily task completion (mandatory tasks count as tasks for the progress bar)
+		_ = s.repo.RecordDailyTaskCompletion(ctx, task.ChoreGroupID, submission.SubmittedBy)
+
 		// Update task status to "done"
 		if err := s.repo.UpdateTaskStatus(ctx, taskID, adminUser.ChoreGroupID, "done"); err != nil {
 			return err
@@ -998,32 +1042,36 @@ func absVal(x int) int {
 }
 
 // CalculateRewardCoins converts estimated USD into a clean reward coin value.
-// In ChoreCraft, 1 coin corresponds roughly to $1 USD of retail value, rounded cleanly:
-// - <= 10 USD: exact integer (min 1)
-// - 11 - 30 USD: nearest 5 (e.g. 15, 20, 25, 30)
-// - 31 - 100 USD: nearest 10 (e.g. 40, 50, 60... 100)
-// - 101 - 500 USD: nearest 25 (e.g. 125, 150, 175... 500)
-// - > 500 USD: nearest 50 (e.g. 550, 600, 750, 1000)
+// In ChoreCraft, snap rewards coin decisions are doubled (1 USD = 2 Coins) because daily rewards
+// (lucky wheel spins, daily 2x multipliers) make coins easier to earn:
+// - <= 10 USD: exact integer * 2 (min 2 coins)
+// - 11 - 30 USD: nearest 5 * 2 (e.g. $15 -> 30, $20 -> 40, $25 -> 50, $30 -> 60)
+// - 31 - 100 USD: nearest 10 * 2 (e.g. $50 -> 100, $100 -> 200)
+// - 101 - 500 USD: nearest 25 * 2 (e.g. $250 -> 500, $500 -> 1000)
+// - > 500 USD: nearest 50 * 2 (e.g. $750 -> 1500, $1000 -> 2000)
 func CalculateRewardCoins(usd float64) int {
 	if usd <= 0 {
-		return 5
+		return 10
 	}
 	val := int(math.Round(usd))
+	var baseCoins int
 	switch {
 	case val <= 10:
 		if val < 1 {
-			return 1
+			baseCoins = 1
+		} else {
+			baseCoins = val
 		}
-		return val
 	case val <= 30:
-		return ((val + 2) / 5) * 5
+		baseCoins = ((val + 2) / 5) * 5
 	case val <= 100:
-		return ((val + 5) / 10) * 10
+		baseCoins = ((val + 5) / 10) * 10
 	case val <= 500:
-		return ((val + 12) / 25) * 25
+		baseCoins = ((val + 12) / 25) * 25
 	default:
-		return ((val + 25) / 50) * 50
+		baseCoins = ((val + 25) / 50) * 50
 	}
+	return baseCoins * 2
 }
 
 // CalculateChoreCoins converts estimated USD and/or suggested coins into a fair, motivating chore coin reward.
@@ -1099,12 +1147,12 @@ Case 2 - If a reward item or prize is visible:
 - "item_type": "reward"
 - "title": Name of the reward item strictly in %s with a leading emoji (e.g. '🎮 סוני פלייסטיישן 5', '🍕 פיצה משפחתית', '🚲 אופניים', '🍦 גלידה', '🧸 בובת פרווה').
 - "description": Short, appealing description strictly in %s.
-- "estimated_usd": Realistic retail market value in USD (where 1 USD = 1 Coin in the rewards store). Guidelines:
-  * Treats, candy, snacks: 2.0 to 8.0
-  * Small toys, cinema tickets, pizza, books: 10.0 to 30.0
-  * Video games, board games, Lego sets, headphones: 40.0 to 100.0
-  * Smartwatches, bikes, tablets: 150.0 to 350.0
-  * High-end gaming consoles (PlayStation 5 / PS5, Xbox Series X, Nintendo Switch), laptops, smartphones: 500.0 to 1000.0+
+- "estimated_usd": Realistic retail market value in USD (note: reward coin decisions are doubled so 1 USD = 2 Coins in the rewards store to account for daily bonus earnings). Guidelines:
+  * Treats, candy, snacks: 2.0 to 8.0 (4 to 16 coins)
+  * Small toys, cinema tickets, pizza, books: 10.0 to 30.0 (20 to 60 coins)
+  * Video games, board games, Lego sets, headphones: 40.0 to 100.0 (80 to 200 coins)
+  * Smartwatches, bikes, tablets: 150.0 to 350.0 (300 to 700 coins)
+  * High-end gaming consoles (PlayStation 5 / PS5, Xbox Series X, Nintendo Switch), laptops, smartphones: 500.0 to 1000.0+ (1000 to 2000+ coins)
 - "valuation_reasoning": Brief reasoning strictly in %s explaining the estimated market price.
 - "suggested_emoji": A fitting emoji for the item (e.g. 🎮, 🍕, 🚲, 🧸).
 
@@ -1180,7 +1228,7 @@ Case 3 - If a REWARD item is visible:
 - "item_type": "reward"
 - "category": "individual"
 - "title": Name of the reward strictly in %s with a leading emoji (e.g. '🎮 סוני פלייסטיישן 5').
-- "estimated_usd": Retail market value in USD (e.g. $500.0-$1000.0 for PS5/consoles, $10.0-$30.0 for small toys/treats).
+- "estimated_usd": Retail market value in USD (e.g. $500.0-$1000.0 for PS5/consoles, $10.0-$30.0 for small toys/treats; reward store coin price is doubled: 1 USD = 2 Coins).
 - "description": Short description strictly in %s.
 - "valuation_reasoning": Brief reasoning strictly in %s.
 - "suggested_emoji": A fitting emoji for the item (e.g. 🎮, 🍕, 🚲).
@@ -1303,4 +1351,73 @@ Return ONLY a valid JSON object:
 
 	return &res, nil
 }
+
+// WheelSliceDefinition defines an individual slice on the lucky wheel.
+type WheelSliceDefinition struct {
+	Index  int    `json:"index"`
+	Label  string `json:"label"`
+	Type   string `json:"type"` // "individual", "cooperative", "none"
+	Amount int    `json:"amount"`
+}
+
+var WheelSlices = []WheelSliceDefinition{
+	{Index: 0, Label: "+1 Coin", Type: "individual", Amount: 1},
+	{Index: 1, Label: "+1 Co-op Coin", Type: "cooperative", Amount: 1},
+	{Index: 2, Label: "+2 Coins", Type: "individual", Amount: 2},
+	{Index: 3, Label: "0 Coins", Type: "none", Amount: 0},
+	{Index: 4, Label: "+1 Coin", Type: "individual", Amount: 1},
+	{Index: 5, Label: "+2 Co-op Coins", Type: "cooperative", Amount: 2},
+	{Index: 6, Label: "+2 Coins", Type: "individual", Amount: 2},
+	{Index: 7, Label: "0 Coins", Type: "none", Amount: 0},
+}
+
+// GetDailyBonusStatus fetches today's chore completion count, target milestones, and available wheel spins.
+func (s *Service) GetDailyBonusStatus(ctx context.Context, choregroupID, userID uuid.UUID) (*model.DailyBonusStatusResponse, error) {
+	user, err := s.repo.GetUserByID(ctx, userID)
+	if err != nil {
+		return nil, err
+	}
+	if user.ChoreGroupID != choregroupID {
+		return nil, ErrForbidden
+	}
+
+	progress, err := s.repo.GetUserDailyProgress(ctx, choregroupID, userID)
+	if err != nil {
+		return nil, err
+	}
+
+	spinsAvail := 0
+	if !user.HasClaimedWelcomeSpin && user.Role == "user" {
+		spinsAvail++
+	}
+	dailySpins := progress.SpinsEarned - progress.SpinsUsed
+	if dailySpins > 0 {
+		spinsAvail += dailySpins
+	}
+
+	return &model.DailyBonusStatusResponse{
+		Date:                  progress.Date.Format("2006-01-02"),
+		TasksCompleted:        progress.TasksCompleted,
+		TargetWheel:           3,
+		TargetDouble:          5,
+		SpinsAvailable:        spinsAvail,
+		WheelUnlocked:         progress.TasksCompleted >= 3 || (!user.HasClaimedWelcomeSpin && user.Role == "user"),
+		DoubleCoinsActive:     progress.DoubleCoinsActive,
+		DoubleCoinsUsed:       progress.DoubleCoinsUsed,
+		HasClaimedWelcomeSpin: user.HasClaimedWelcomeSpin,
+	}, nil
+}
+
+// SpinWheel executes a spin for a kid user, picking a random slice and persisting points/spin consumption.
+func (s *Service) SpinWheel(ctx context.Context, choregroupID uuid.UUID, user model.User) (*model.WheelSpinResponse, error) {
+	if user.Role != "user" {
+		return nil, errors.New("only kid users can spin the wheel")
+	}
+
+	idx := rand.IntN(len(WheelSlices))
+	chosenSlice := WheelSlices[idx]
+
+	return s.repo.ClaimWheelSpin(ctx, choregroupID, user.ID, chosenSlice.Index, chosenSlice.Label, chosenSlice.Amount, chosenSlice.Type)
+}
+
 

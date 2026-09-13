@@ -642,6 +642,13 @@ function closeModal(modalId) {
   }
 }
 
+function openModal(modalId) {
+  const modal = document.getElementById(modalId);
+  if (modal) {
+    modal.classList.add("active");
+  }
+}
+
 let globalEventSource = null;
 
 function connectSSE() {
@@ -812,7 +819,8 @@ async function handleLogin(e) {
       username: res.username || username,
       role: res.role,
       choregroup_id: res.choregroup_id,
-      choregroup_name: res.role === "admin" ? "My Household" : "User Space"
+      choregroup_name: res.role === "admin" ? "My Household" : "User Space",
+      profile_image_url: res.profile_image_url || null
     });
     closeModal("auth-modal");
     showToast(`Welcome back ${res.username || username}!`);
@@ -823,11 +831,12 @@ async function handleLogin(e) {
 
 function setSession(userObj) {
   currentSession = {
-    user_id: userObj.id,
+    user_id: userObj.id || userObj.user_id,
     username: userObj.username,
     role: userObj.role,
     choregroup_id: userObj.choregroup_id,
-    choregroup_name: userObj.choregroup_name
+    choregroup_name: userObj.choregroup_name,
+    profile_image_url: userObj.profile_image_url || null
   };
   localStorage.setItem("chorecraft_session", JSON.stringify(currentSession));
   connectSSE();
@@ -847,6 +856,7 @@ function restoreSessionView() {
     showSection("parent-view");
   } else {
     showSection("kid-view");
+    fetchAndSyncDailyBonus();
   }
   
   // Restore tab from URL hash (preserves state across refreshes)
@@ -872,7 +882,15 @@ function syncSessionFromStats(statsData) {
   const me = statsData.users.find(u => u.id === currentSession.user_id);
   if (me) {
     currentSession.notifications_viewed = me.notifications_viewed;
+    let changed = false;
+    if (me.profile_image_url !== undefined && me.profile_image_url !== currentSession.profile_image_url) {
+      currentSession.profile_image_url = me.profile_image_url;
+      changed = true;
+    }
     localStorage.setItem("chorecraft_session", JSON.stringify(currentSession));
+    if (changed) {
+      updateHeaderAuthBtn();
+    }
     
     // Check if we need to hide the badge
     if (currentSession.notifications_viewed) {
@@ -908,6 +926,78 @@ window.markNotificationsRead = async () => {
   }
 };
 
+function updateHeaderWheelBadge(spinsAvailable = 0) {
+  const wheelBtn = document.getElementById("header-wheel-btn");
+  const badge = document.getElementById("header-wheel-badge");
+  if (!wheelBtn) return;
+
+  if (currentSession && currentSession.role === "user") {
+    wheelBtn.style.display = "inline-flex";
+    if (spinsAvailable > 0) {
+      wheelBtn.classList.add("has-spins");
+      if (badge) {
+        badge.textContent = spinsAvailable;
+        badge.style.display = "flex";
+      }
+    } else {
+      wheelBtn.classList.remove("has-spins");
+      if (badge) {
+        badge.style.display = "none";
+      }
+    }
+  } else {
+    wheelBtn.style.display = "none";
+    if (badge) badge.style.display = "none";
+  }
+}
+
+async function fetchAndSyncDailyBonus() {
+  if (!currentSession || currentSession.role !== "user") return null;
+  const groupId = currentSession.choregroup_id;
+  if (!groupId) return null;
+  try {
+    const bonusData = await apiCall(`/choregroups/${groupId}/daily-bonus`);
+    if (bonusData) {
+      currentDailyBonus = bonusData;
+      const spins = bonusData.spins_available || 0;
+      currentSession.spins_available = spins;
+      try {
+        localStorage.setItem("chorecraft_session", JSON.stringify(currentSession));
+      } catch (e) {}
+      updateHeaderWheelBadge(spins);
+      renderDailyBonusBar(bonusData);
+      return bonusData;
+    }
+  } catch (err) {
+    console.warn("Could not fetch daily bonus status:", err);
+  }
+  return null;
+}
+
+function renderAvatarHtml(profileImageUrl, isAdmin = false, customClass = "") {
+  const isImage = profileImageUrl && (profileImageUrl.startsWith("/") || profileImageUrl.startsWith("http"));
+  const crownHtml = isAdmin ? '<span class="avatar-crown">👑</span>' : '';
+  
+  if (isImage) {
+    return `<span class="member-avatar ${customClass} ${isAdmin ? 'admin-avatar' : ''}"><img src="${escapeHTML(profileImageUrl)}" class="member-avatar-img" alt="Avatar" />${crownHtml}</span>`;
+  } else if (profileImageUrl && profileImageUrl.trim()) {
+    return `<span class="member-avatar ${customClass} ${isAdmin ? 'admin-avatar' : ''}"><span class="avatar-emoji">${escapeHTML(profileImageUrl)}</span>${crownHtml}</span>`;
+  }
+  return `<span class="member-avatar ${customClass} ${isAdmin ? 'admin-avatar' : ''}">👤${crownHtml}</span>`;
+}
+
+function renderMiniAvatar(profileImageUrl, isAdmin = false) {
+  const isImage = profileImageUrl && (profileImageUrl.startsWith("/") || profileImageUrl.startsWith("http"));
+  const crownHtml = isAdmin ? '<span class="mini-crown">👑</span>' : '';
+  
+  if (isImage) {
+    return `<span class="mini-avatar-wrap ${isAdmin ? 'admin-avatar' : ''}"><img src="${escapeHTML(profileImageUrl)}" class="mini-avatar-img" alt="Avatar" />${crownHtml}</span>`;
+  } else if (profileImageUrl && profileImageUrl.trim()) {
+    return `<span class="mini-avatar-wrap ${isAdmin ? 'admin-avatar' : ''}">${escapeHTML(profileImageUrl)}${crownHtml}</span>`;
+  }
+  return `<span class="mini-avatar-wrap ${isAdmin ? 'admin-avatar' : ''}">👤${crownHtml}</span>`;
+}
+
 function updateHeaderAuthBtn() {
   const container = document.getElementById("auth-status-container");
   if (!container) return;
@@ -921,39 +1011,49 @@ function updateHeaderAuthBtn() {
     }
     const isKid = currentSession.role === "user";
     if (isKid) {
+      const spins = (currentDailyBonus && typeof currentDailyBonus.spins_available === 'number')
+        ? currentDailyBonus.spins_available
+        : (typeof currentSession.spins_available === 'number' ? currentSession.spins_available : 0);
+      updateHeaderWheelBadge(spins);
       if (headerStats) {
         headerStats.innerHTML = `
           <div class="user-coins-pill" title="My Coins &amp; Family Cooperative Coins">
-            <div class="coin-chip individual" title="Personal Coins: ${currentSession.points || 0}">
+            <div class="coin-chip individual" id="header-coin-chip-individual" title="Personal Coins: ${currentSession.points || 0}">
               <span class="points-coin">🐱</span>
-              <span class="coin-amount">${currentSession.points || 0}</span>
+              <span class="coin-amount" id="header-coin-amount-individual">${currentSession.points || 0}</span>
             </div>
             <div class="coin-pill-divider"></div>
-            <div class="coin-chip cooperative" title="Cooperative Coins: ${currentSession.cooperative_points || 0}">
+            <div class="coin-chip cooperative" id="header-coin-chip-cooperative" title="Cooperative Coins: ${currentSession.cooperative_points || 0}">
               <span class="points-coin coop-theme">🐱🐱</span>
-              <span class="coin-amount">${currentSession.cooperative_points || 0}</span>
+              <span class="coin-amount" id="header-coin-amount-cooperative">${currentSession.cooperative_points || 0}</span>
             </div>
           </div>
         `;
         headerStats.style.display = "flex";
       }
     } else {
+      updateHeaderWheelBadge(0);
       if (headerStats) {
         headerStats.style.display = "none";
       }
     }
     container.innerHTML = `
       <div class="user-dropdown-container" id="header-user-dropdown-container">
-        <button class="btn btn-outline btn-sm btn-user-trigger" id="user-trigger-btn" onclick="toggleUserDropdown(event)">
-          <strong>${escapeHTML(currentSession.username)}</strong>
-          <svg class="chevron-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-left: 4px; vertical-align: middle;">
-            <polyline points="6 9 12 15 18 9"></polyline>
-          </svg>
+        <button class="btn-user-trigger" id="user-trigger-btn" onclick="toggleUserDropdown(event)" title="${escapeHTML(currentSession.username)}" aria-label="User profile">
+          ${renderMiniAvatar(currentSession.profile_image_url, currentSession.role === 'admin')}
         </button>
         <div class="user-dropdown-menu" id="user-dropdown-menu">
-          <div class="user-dropdown-info">
-            <strong>${escapeHTML(currentSession.username)}</strong>
-            <span class="user-role-badge ${currentSession.role === 'admin' ? 'user-role-admin' : 'user-role-standard'}">${currentSession.role === "admin" ? 'Admin' : 'User'}</span>
+          <div class="user-dropdown-profile-header">
+            <div class="dropdown-avatar-display" onclick="openAvatarModal()" title="Click to change profile picture">
+              ${currentSession.profile_image_url && (currentSession.profile_image_url.startsWith('/') || currentSession.profile_image_url.startsWith('http'))
+                ? `<img src="${escapeHTML(currentSession.profile_image_url)}" class="mini-avatar-img" alt="Avatar" />`
+                : (currentSession.profile_image_url || '👤')}
+              ${currentSession.role === 'admin' ? '<span class="dropdown-crown">👑</span>' : ''}
+            </div>
+            <div class="user-dropdown-info-text">
+              <strong>${escapeHTML(currentSession.username)}</strong>
+              <span class="user-role-badge ${currentSession.role === 'admin' ? 'user-role-admin' : 'user-role-standard'}">${currentSession.role === "admin" ? 'Admin' : 'User'}</span>
+            </div>
           </div>
           <div class="dropdown-theme-row" onclick="handleThemeToggleClick(event)" title="Toggle Dark Mode">
             <div class="dropdown-theme-label">
@@ -998,6 +1098,7 @@ function updateHeaderAuthBtn() {
       </div>
     `;
   } else {
+    updateHeaderWheelBadge(0);
     if (notificationCenter) {
       notificationCenter.style.display = "none";
     }
@@ -1031,19 +1132,27 @@ async function renderParentDashboard() {
   let familyMembers = [];
   
   try {
-    // 1. Fetch chores list: GET /choregroups/{groupID}/tasks
-    const tasks = await apiCall(`/choregroups/${groupId}/tasks`);
+    // 1. Fetch chores, submissions, and members concurrently in parallel (3x faster)
+    const [tasks, allSubmissions, members] = await Promise.all([
+      apiCall(`/choregroups/${groupId}/tasks`).catch(err => {
+        console.error("Failed to fetch tasks:", err);
+        return [];
+      }),
+      apiCall(`/choregroups/${groupId}/submissions`).catch(err => {
+        console.error("Failed to fetch submissions:", err);
+        return [];
+      }),
+      apiCall(`/choregroups/${groupId}/members`).catch(err => {
+        console.error("Failed to fetch members:", err);
+        return [];
+      })
+    ]);
+
     activeTasks = tasks || [];
-    
-    // 2. Fetch pending submissions list: GET /choregroups/{groupId}/submissions
-    const allSubmissions = await apiCall(`/choregroups/${groupId}/submissions`);
     pendingSubmissions = (allSubmissions || []).filter(s => {
       const task = activeTasks.find(t => t.id === s.task_id);
       return s.status === "pending_approval" || (task && task.status === "pending_approval");
     });
-    
-    // 3. Fetch family members list: GET /choregroups/${groupId}/members
-    const members = await apiCall(`/choregroups/${groupId}/members`);
     familyMembers = members || [];
     
     // Self-healing: Update session if username was missing in legacy storage
@@ -1068,11 +1177,6 @@ async function renderParentDashboard() {
         console.warn("Could not self-heal choregroup name:", err);
       }
     }
-  } catch (err) {
-    console.error("Dashboard render failed:", err);
-    setTabLoading("parent-chores-content", false);
-    return;
-  }
   
   // Render Active Chores list
   if (choresList) choresList.innerHTML = "";
@@ -1124,7 +1228,7 @@ async function renderParentDashboard() {
       let statusHtml = "";
       let extendHtml = "";
       if (task.status === "pending_approval") {
-        statusHtml = `<div class="card-status-badge"><span>⏳ Pending Approval</span></div>`;
+        statusHtml = `<div class="card-status-badge" title="Awaiting Admin Approval"><span>⏳</span></div>`;
       } else if (task.status === "done") {
         statusHtml = `<div class="card-status-badge" style="background-color: var(--success-green-light); color: var(--success-green); border-color: var(--success-green);"><span>💚 Completed</span></div>`;
       } else if (task.status === "expired") {
@@ -1158,7 +1262,7 @@ async function renderParentDashboard() {
           </div>
         </div>
         <div class="card-actions-row">
-          <div style="display: flex; align-items: center; gap: 0.5rem;">
+          <div style="display: flex; align-items: center; gap: 0.5rem; flex-shrink: 0;">
             ${task.is_mandatory ? '' : `
               <div class="card-points-badge">
                 +${task.points_reward} ${coinHtml}
@@ -1205,10 +1309,15 @@ async function renderParentDashboard() {
       const subItem = document.createElement("div");
       subItem.className = iconUrl ? "submission-item has-photo" : "submission-item";
 
+      const isMandatory = Boolean(task.is_mandatory || task.points_reward === 0);
+      const ptsBadgeHtml = isMandatory
+        ? `<span class="sub-pts sub-mandatory" title="Mandatory Chore" aria-label="Mandatory Chore">🚨</span>`
+        : `<span class="sub-pts">+${task.points_reward} ${task.type === 'cooperative' ? '<span class="points-coin coop-theme">🐱🐱</span>' : '<span class="points-coin">🐱</span>'}</span>`;
+
       subItem.innerHTML = `
         <div class="sub-header">
           <span class="sub-who">👾 ${kid.username} completed:</span>
-          <span class="sub-pts">+${task.points_reward} ${task.type === 'cooperative' ? '<span class="points-coin coop-theme">🐱🐱</span>' : '<span class="points-coin">🐱</span>'}</span>
+          ${ptsBadgeHtml}
         </div>
         <div class="sub-chore">
           <span class="sub-chore-emoji">${renderItemIcon(task, emoji, title)}</span>
@@ -1251,20 +1360,26 @@ async function renderParentDashboard() {
     const item = document.createElement("div");
     item.className = "member-item";
     const isMe = currentSession && m.id === currentSession.user_id;
-    const avatarHtml = m.role === "admin" 
-      ? `<span class="member-avatar admin-avatar">👤<span class="avatar-crown">👑</span></span>`
-      : `<span class="member-avatar">👤</span>`;
-      
-    let actionBtnHtml = "";
-    if (!isMe) {
-      actionBtnHtml = `
-        <div style="margin-left: auto; display: flex; gap: 0.5rem; align-items: center;">
-          <button class="btn btn-outline btn-xs" onclick="openChangePasswordModal('${m.id}', '${escapeHTML(m.username)}')" title="Change Password" style="font-size: 0.75rem; padding: 0.25rem 0.5rem;">🔑</button>
-          <button class="btn btn-primary btn-xs" onclick="generateKidAccessLink('${m.id}', '${escapeHTML(m.username)}', '${m.role}')" style="font-size: 0.75rem; padding: 0.25rem 0.5rem;" title="Share Login Link"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="18" cy="5" r="3" /><circle cx="6" cy="12" r="3" /><circle cx="18" cy="19" r="3" /><line x1="8.59" y1="13.51" x2="15.42" y2="17.49" /><line x1="15.41" y1="6.51" x2="8.59" y2="10.49" /></svg></button>
-          <button class="btn btn-outline btn-xs btn-delete" onclick="deleteFamilyMember('${m.id}', '${escapeHTML(m.username)}')" title="Remove Member" style="font-size: 0.75rem; padding: 0.25rem 0.5rem;">❌</button>
-        </div>
-      `;
+    if (isMe && currentSession) {
+      if (currentSession.profile_image_url !== m.profile_image_url) {
+        currentSession.profile_image_url = m.profile_image_url || null;
+        localStorage.setItem("chorecraft_session", JSON.stringify(currentSession));
+        updateHeaderAuthBtn();
+      }
     }
+    const avatarHtml = `
+      <div onclick="openAvatarModal('${m.id}', '${escapeHTML(m.username)}', '${escapeHTML(m.profile_image_url || '')}', ${m.role === 'admin'})" title="Click to change profile picture" style="display: inline-flex;">
+        ${renderAvatarHtml(m.profile_image_url, m.role === 'admin', 'clickable')}
+      </div>
+    `;
+      
+    let actionBtnHtml = !isMe ? `
+      <div style="margin-left: auto; display: flex; gap: 0.4rem; align-items: center;">
+        <button type="button" class="member-action-btn" onclick="openChangePasswordModal('${m.id}', '${escapeHTML(m.username)}')" title="Change Password" aria-label="Change Password">🔑</button>
+        <button type="button" class="member-action-btn btn-primary" onclick="generateKidAccessLink('${m.id}', '${escapeHTML(m.username)}', '${m.role}')" title="Share Login Link" aria-label="Share Login Link"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="18" cy="5" r="3" /><circle cx="6" cy="12" r="3" /><circle cx="18" cy="19" r="3" /><line x1="8.59" y1="13.51" x2="15.42" y2="17.49" /><line x1="15.41" y1="6.51" x2="8.59" y2="10.49" /></svg></button>
+        <button type="button" class="member-action-btn btn-delete" onclick="deleteFamilyMember('${m.id}', '${escapeHTML(m.username)}')" title="Remove Member" aria-label="Remove Member">❌</button>
+      </div>
+    ` : '';
       
     item.innerHTML = `
       <div class="member-info">
@@ -1275,7 +1390,11 @@ async function renderParentDashboard() {
     `;
     membersList.appendChild(item);
   });
-  setTabLoading("parent-chores-content", false);
+  } catch (err) {
+    console.error("Dashboard render failed:", err);
+  } finally {
+    setTabLoading("parent-chores-content", false);
+  }
 }
 
 // Populate assignees in the Add Chore dialog
@@ -1615,6 +1734,213 @@ async function handleSavePassword(e) {
 }
 
 /* ==========================================================
+   AVATAR / PROFILE PICTURE MANAGEMENT
+   ========================================================== */
+
+const AVATAR_PRESETS = {
+  animals: ['🐶', '🐱', '🦊', '🐼', '🦁', '🐯', '🐨', '🐰', '🦄', '🦖', '🐬', '🦉', '🐵', '🐧', '🐸', '🐙', '🦋', '🐝'],
+  characters: ['🧙‍♂️', '🦸‍♀️', '🥷', '👸', '🤴', '🧝', '🧛', '🧚', '🤖', '👽', '🤠', '👾', '🧟', '🧜‍♀️', '🧞', '🧑‍🚀', '💂', '🕵️'],
+  cool: ['🎮', '🕹️', '🎲', '🎸', '🎨', '🛹', '⚽', '🏀', '🚀', '🏎️', '🥋', '🏆', '🎧', '🎯', '🎳', '🏄', '🥊', '🎪']
+};
+
+let avatarModalState = {
+  targetUserId: null,
+  targetUsername: '',
+  targetIsAdmin: false,
+  selectedAvatarUrl: '',
+  currentTab: 'animals'
+};
+
+function openAvatarModal(userId = null, username = '', currentAvatarUrl = '', isAdmin = null) {
+  if (!userId && currentSession) {
+    userId = currentSession.user_id || currentSession.id;
+    username = currentSession.username;
+    currentAvatarUrl = currentSession.profile_image_url || '';
+    isAdmin = currentSession.role === 'admin';
+  } else if (userId) {
+    if (!username || isAdmin === null) {
+      if (currentSession && (currentSession.user_id === userId || currentSession.id === userId)) {
+        username = currentSession.username;
+        currentAvatarUrl = currentSession.profile_image_url || '';
+        isAdmin = currentSession.role === 'admin';
+      }
+    }
+  }
+
+  avatarModalState.targetUserId = userId;
+  avatarModalState.targetUsername = username || (currentSession ? currentSession.username : '');
+  avatarModalState.targetIsAdmin = (isAdmin !== null) ? !!isAdmin : (currentSession && currentSession.role === 'admin');
+  avatarModalState.selectedAvatarUrl = currentAvatarUrl || '';
+  avatarModalState.currentTab = 'animals';
+  
+  const titleEl = document.getElementById("avatar-modal-title");
+  if (titleEl) {
+    const isMe = currentSession && (userId === currentSession.user_id || userId === currentSession.id);
+    titleEl.innerText = isMe ? "Change Profile Picture" : `Change Picture for ${avatarModalState.targetUsername}`;
+  }
+  
+  const captionEl = document.getElementById("avatar-modal-user-caption");
+  if (captionEl) {
+    captionEl.innerText = `${avatarModalState.targetUsername} • ${avatarModalState.targetIsAdmin ? 'Admin 👑' : 'Family Member'}`;
+  }
+
+  updateAvatarPreview();
+  switchAvatarTab('animals');
+  
+  const uploadStatus = document.getElementById("avatar-upload-status");
+  if (uploadStatus) uploadStatus.innerText = "";
+  
+  // Close any open dropdowns
+  const dropdown = document.getElementById("user-dropdown-menu");
+  if (dropdown) dropdown.classList.remove("active");
+
+  const modal = document.getElementById("avatar-modal");
+  if (modal) {
+    modal.classList.add("active");
+  }
+}
+
+function updateAvatarPreview() {
+  const previewContainer = document.getElementById("avatar-modal-preview");
+  if (!previewContainer) return;
+  
+  const url = avatarModalState.selectedAvatarUrl;
+  const isAdmin = avatarModalState.targetIsAdmin;
+  const crownHtml = isAdmin ? '<span class="preview-crown">👑</span>' : '';
+  
+  if (url && (url.startsWith('/') || url.startsWith('http'))) {
+    previewContainer.innerHTML = `<img src="${escapeHTML(url)}" alt="Preview" />${crownHtml}`;
+  } else if (url && url.trim()) {
+    previewContainer.innerHTML = `<span>${escapeHTML(url)}</span>${crownHtml}`;
+  } else {
+    previewContainer.innerHTML = `<span>👤</span>${crownHtml}`;
+  }
+}
+
+function switchAvatarTab(tabName) {
+  avatarModalState.currentTab = tabName;
+  ['animals', 'characters', 'cool'].forEach(t => {
+    const btn = document.getElementById(`avatar-tab-${t}`);
+    if (btn) btn.classList.toggle('active', t === tabName);
+  });
+  
+  const container = document.getElementById("avatar-grid-container");
+  if (!container) return;
+  container.innerHTML = "";
+
+  // Picture upload slot as first button in grid (icon-only upload tile)
+  const uploadSlotBtn = document.createElement("button");
+  uploadSlotBtn.type = "button";
+  uploadSlotBtn.className = "avatar-choice-btn upload-slot-btn";
+  uploadSlotBtn.title = "Upload Picture from Device";
+  uploadSlotBtn.setAttribute("aria-label", "Upload Picture from Device");
+  uploadSlotBtn.innerHTML = `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="17 8 12 3 7 8"></polyline><line x1="12" y1="3" x2="12" y2="15"></line></svg>`;
+  uploadSlotBtn.onclick = () => document.getElementById('avatar-file-upload-input').click();
+  container.appendChild(uploadSlotBtn);
+  
+  const list = AVATAR_PRESETS[tabName] || [];
+  list.forEach(emoji => {
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = `avatar-choice-btn ${avatarModalState.selectedAvatarUrl === emoji ? 'selected' : ''}`;
+    btn.innerText = emoji;
+    btn.onclick = () => {
+      avatarModalState.selectedAvatarUrl = emoji;
+      updateAvatarPreview();
+      document.querySelectorAll('.avatar-choice-btn').forEach(b => b.classList.remove('selected'));
+      btn.classList.add('selected');
+    };
+    container.appendChild(btn);
+  });
+}
+
+async function handleAvatarFileUpload(event) {
+  const file = event.target.files && event.target.files[0];
+  if (!file) return;
+  
+  const statusEl = document.getElementById("avatar-upload-status");
+  if (statusEl) statusEl.innerText = "Uploading picture... ⏳";
+  
+  const formData = new FormData();
+  formData.append("image", file);
+  
+  try {
+    const res = await fetch(`${getApiBase()}/upload`, {
+      method: "POST",
+      body: formData,
+      credentials: "include"
+    });
+    if (!res.ok) {
+      throw new Error(`Upload failed: ${res.statusText}`);
+    }
+    const data = await res.json();
+    const photoUrl = data.icon_url;
+    avatarModalState.selectedAvatarUrl = photoUrl;
+    updateAvatarPreview();
+    document.querySelectorAll('.avatar-choice-btn').forEach(b => b.classList.remove('selected'));
+    if (statusEl) statusEl.innerText = "Picture selected! Tap ✔ to save.";
+  } catch (err) {
+    console.error("Avatar upload failed:", err);
+    if (statusEl) statusEl.innerText = "⚠️ Upload failed. Please try a different image.";
+  } finally {
+    event.target.value = "";
+  }
+}
+
+function resetAvatarToDefault() {
+  avatarModalState.selectedAvatarUrl = "";
+  updateAvatarPreview();
+  document.querySelectorAll('.avatar-choice-btn').forEach(b => b.classList.remove('selected'));
+  const statusEl = document.getElementById("avatar-upload-status");
+  if (statusEl) statusEl.innerText = "Default silhouette selected. Tap ✔ to save.";
+}
+
+async function saveSelectedAvatar() {
+  const { targetUserId, selectedAvatarUrl } = avatarModalState;
+  if (!targetUserId || !currentSession) return;
+  
+  const saveBtn = document.getElementById("avatar-save-btn");
+  const saveSvg = `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>`;
+  if (saveBtn) {
+    saveBtn.disabled = true;
+    saveBtn.innerHTML = '⏳';
+  }
+  
+  try {
+    const groupId = currentSession.choregroup_id;
+    await apiCall(`/choregroups/${groupId}/members/${targetUserId}/avatar`, "PUT", {
+      avatar_url: selectedAvatarUrl
+    });
+    
+    // If the edited user is current session user, update local currentSession
+    const isMe = targetUserId === currentSession.user_id || targetUserId === currentSession.id;
+    if (isMe) {
+      currentSession.profile_image_url = selectedAvatarUrl || null;
+      localStorage.setItem("chorecraft_session", JSON.stringify(currentSession));
+      updateHeaderAuthBtn();
+    }
+    
+    closeModal("avatar-modal");
+    showToast("Profile picture updated! ✨");
+    
+    // Refresh family members or kid dashboard
+    if (currentSession.role === "admin") {
+      renderParentDashboard();
+    } else {
+      renderKidDashboard();
+    }
+  } catch (err) {
+    console.error("Failed to save avatar:", err);
+    alert("Could not update profile picture: " + err.message);
+  } finally {
+    if (saveBtn) {
+      saveBtn.disabled = false;
+      saveBtn.innerHTML = saveSvg;
+    }
+  }
+}
+
+/* ==========================================================
    SUBMISSIONS APPROVAL CONTROLS (PUT /status)
    ========================================================== */
 
@@ -1667,211 +1993,232 @@ async function renderKidDashboard() {
   
   let kidTasks = [];
   let userPoints = 0;
+  let dailyBonus = null;
+  let members = [];
+  let me = null;
   
   try {
-    // 1. Fetch chores list: GET /choregroups/{groupID}/tasks
-    const tasks = await apiCall(`/choregroups/${groupId}/tasks`);
-    kidTasks = (tasks || []).filter(t => !t.assigned_to_user_id || t.assigned_to_user_id === userId || t.type === 'cooperative');
-    
-    // 2. Fetch members list to extract point balance
-    const members = await apiCall(`/choregroups/${groupId}/members`);
-    const me = (members || []).find(m => m.id === userId);
-    userPoints = me ? me.points : 0;
+    // 1. Fetch chores, members, stats, and daily bonus concurrently in parallel (3-4x faster)
+    const [tasks, fetchedMembers, statsData, fetchedDailyBonus] = await Promise.all([
+      apiCall(`/choregroups/${groupId}/tasks`).catch(err => {
+        console.error("Failed to fetch tasks:", err);
+        return [];
+      }),
+      apiCall(`/choregroups/${groupId}/members`).catch(err => {
+        console.error("Failed to fetch members:", err);
+        return [];
+      }),
+      apiCall(`/choregroups/${groupId}/statistics`).catch(() => ({ users: [], cooperative_points: 0 })),
+      apiCall(`/choregroups/${groupId}/daily-bonus`).catch(dbErr => {
+        console.warn("Could not fetch daily bonus status:", dbErr);
+        return null;
+      })
+    ]);
 
-    // 3. Fetch statistics to extract group cooperative points for the header
-    const statsData = await apiCall(`/choregroups/${groupId}/statistics`) || { users: [], cooperative_points: 0 };
-    currentSession.cooperative_points = statsData.cooperative_points || 0;
+    kidTasks = (tasks || []).filter(t => !t.assigned_to_user_id || t.assigned_to_user_id === userId || t.type === 'cooperative');
+    members = fetchedMembers || [];
+    me = members.find(m => m.id === userId);
+    userPoints = me ? me.points : (currentSession.points || 0);
+
+    currentSession.cooperative_points = (statsData && statsData.cooperative_points) || 0;
+    dailyBonus = fetchedDailyBonus;
+    if (dailyBonus) {
+      currentDailyBonus = dailyBonus;
+      currentSession.spins_available = dailyBonus.spins_available || 0;
+    }
+
+    // Set UI Details: Save fresh points and refresh header auth banner
+    currentSession.points = userPoints;
+    if (me && me.profile_image_url !== undefined && me.profile_image_url !== currentSession.profile_image_url) {
+      currentSession.profile_image_url = me.profile_image_url;
+    }
+    localStorage.setItem("chorecraft_session", JSON.stringify(currentSession));
+    updateHeaderAuthBtn();
+
+    // Render Daily Bonus Progress Bar
+    renderDailyBonusBar(dailyBonus);
+    
+    // Render My Chores list
+    if (kidChoresList) kidChoresList.innerHTML = "";
+    
+    const activeOnly = kidTasks.filter(t => t.status !== "done");
+    // A mandatory task blocks non-mandatory tasks if it's assigned OR pending approval
+    const hasPendingMandatory = activeOnly.some(t => t.is_mandatory && (t.status === "assigned" || t.status === "pending_approval"));
+    
+    // Toggle the Snap Chore button based on mandatory task status
+    const kidSnapBtn = document.getElementById("kid-snap-chore-btn");
+    if (kidSnapBtn) {
+      if (hasPendingMandatory) {
+        kidSnapBtn.disabled = true;
+        kidSnapBtn.title = "Complete your mandatory chores first!";
+        kidSnapBtn.style.opacity = "0.45";
+        kidSnapBtn.style.cursor = "not-allowed";
+      } else {
+        kidSnapBtn.disabled = false;
+        kidSnapBtn.title = "";
+        kidSnapBtn.style.opacity = "1";
+        kidSnapBtn.style.cursor = "pointer";
+      }
+    }
+    
+    activeOnly.sort((a, b) => {
+      if (a.is_mandatory !== b.is_mandatory) return a.is_mandatory ? -1 : 1;
+
+      const aTimed = !!(a.status === "assigned" && a.expires_at);
+      const bTimed = !!(b.status === "assigned" && b.expires_at);
+      if (aTimed !== bTimed) return aTimed ? -1 : 1;
+
+      if (a.status !== b.status) return a.status === "assigned" ? -1 : 1;
+      return 0;
+    });
+    
+    if (activeOnly.length === 0) {
+      kidChoresList.innerHTML = "";
+    } else {
+      activeOnly.forEach(task => {
+        // Locked due to mandatory tasks
+        const isLockedByMandatory = !task.is_mandatory && hasPendingMandatory;
+        // Locked due to incomplete parent task
+        let isLockedByParent = false;
+        if (task.parent_task_id) {
+          const parentTask = activeOnly.find(t => t.id === task.parent_task_id);
+          if (parentTask && parentTask.status !== "done") {
+            isLockedByParent = true;
+          }
+        }
+
+        const isDisabled = isLockedByMandatory || isLockedByParent;
+
+        const card = document.createElement("div");
+        card.className = `chore-card ${isDisabled ? 'disabled' : ''}`;
+        card.id = "kid-task-" + task.id;
+
+        // Parse emoji and title
+        const { emoji, title } = parseChoreTitle(task.title);
+
+        let actionHtml = "";
+        if (task.status === "assigned") {
+          actionHtml = `<button class="btn btn-outline btn-submit-chore" onclick="event.stopPropagation(); submitChoreForApproval('${task.id}')" title="Submit Chore" aria-label="Submit Chore"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg></button>`;
+        } else if (task.status === "pending_approval") {
+          actionHtml = `<span class="badge badge-warning">⏳ Pending Approval</span>`;
+        }
+
+        let displayTitle = title;
+        if (task.is_mandatory) {
+          displayTitle = `<span class="mandatory-star-icon" title="Mandatory Chore">🚨</span> ` + title;
+        }
+
+        let timerHtml = "";
+        if (task.status === "assigned" && task.expires_at) {
+          timerHtml = `
+            <div class="task-timer" data-expires="${task.expires_at}">
+              <span class="timer-icon">⏳</span>
+              <span class="timer-text">Calculating...</span>
+            </div>
+          `;
+        } else if (task.status === "assigned" && task.is_expired) {
+          timerHtml = `
+            <div class="task-timer expired">
+              <span>🚨 Expired</span>
+            </div>
+          `;
+        }
+        
+        const coinHtml = task.type === "cooperative" ? `<span class="points-coin coop-theme">🐱🐱</span>` : `<span class="points-coin">🐱</span>`;
+
+        card.innerHTML = `
+          <div class="card-top">
+            <div class="card-emoji-box">${renderItemIcon(task, emoji, title)}</div>
+            <div class="card-details">
+              <h3 ${isDisabled ? 'style="color: #999;"' : ''}>${displayTitle}</h3>
+              ${timerHtml}
+            </div>
+          </div>
+          <div class="card-actions-row">
+            <div style="display: flex; align-items: center; gap: 0.5rem; flex-shrink: 0;">
+              ${task.is_mandatory ? '' : `
+                <div class="card-points-badge">
+                  +${task.points_reward} ${coinHtml}
+                  ${(dailyBonus && dailyBonus.double_coins_active) ? '<span class="task-double-badge" title="2x Coins Multiplier Active for this chore!">2×🪙</span>' : ''}
+                </div>
+              `}
+              ${task.continuation_count > 0 ? `
+                <div class="continuation-count-badge" style="color: #475569; font-size: 0.95rem; font-weight: bold; display: inline-flex; align-items: center; gap: 0.2rem; margin-left: 0.5rem;">
+                  +${task.continuation_count} 📋
+                </div>
+              ` : ''}
+            </div>
+            <div class="card-controls">
+              ${actionHtml}
+            </div>
+          </div>
+        `;
+
+        if (isDisabled) {
+          const overlay = document.createElement("div");
+          overlay.className = "locked-overlay";
+          overlay.innerHTML = "🔒 Locked";
+          card.appendChild(overlay);
+
+          card.onclick = (e) => {
+            e.stopPropagation();
+            e.preventDefault();
+            
+            let targets = [];
+            if (isLockedByMandatory) {
+              // Prioritize mandatory chores
+              targets = activeOnly.filter(t => t.is_mandatory && (t.status === "assigned" || t.status === "pending_approval"));
+            } else if (isLockedByParent) {
+              // Otherwise, target parent chore
+              const parentTask = activeOnly.find(t => t.id === task.parent_task_id);
+              if (parentTask) {
+                targets = [parentTask];
+              }
+            }
+
+            // Clear any existing flashing highlights first
+            document.querySelectorAll('.flashing-highlight').forEach(el => {
+              el.classList.remove('flashing-highlight');
+            });
+
+            targets.forEach(target => {
+              const targetEl = document.getElementById("kid-task-" + target.id);
+              if (targetEl) {
+                targetEl.scrollIntoView({ behavior: "smooth", block: "center" });
+                // Force animation restart by removing and re-adding after a frame
+                requestAnimationFrame(() => {
+                  targetEl.classList.add("flashing-highlight");
+                });
+                setTimeout(() => {
+                  targetEl.classList.remove("flashing-highlight");
+                }, 3000);
+              }
+            });
+          };
+        } else {
+          // card onclick removed to only allow image click
+        }
+
+        kidChoresList.appendChild(card);
+      });
+    }
+    
+    await renderKidSidebarWidgets(members);
   } catch (err) {
     console.error("Kid Dashboard render failed:", err);
+  } finally {
     setTabLoading("kid-chores-content", false);
-    return;
   }
-  
-  // Set UI Details: Save fresh points and refresh header auth banner
-  currentSession.points = userPoints;
-  localStorage.setItem("chorecraft_session", JSON.stringify(currentSession));
-  updateHeaderAuthBtn();
-  
-  // Render My Chores list
-  if (kidChoresList) kidChoresList.innerHTML = "";
-  
-  const activeOnly = kidTasks.filter(t => t.status !== "done");
-  // A mandatory task blocks non-mandatory tasks if it's assigned OR pending approval
-  const hasPendingMandatory = activeOnly.some(t => t.is_mandatory && (t.status === "assigned" || t.status === "pending_approval"));
-  
-  // Toggle the Snap Chore button based on mandatory task status
-  const kidSnapBtn = document.getElementById("kid-snap-chore-btn");
-  if (kidSnapBtn) {
-    if (hasPendingMandatory) {
-      kidSnapBtn.disabled = true;
-      kidSnapBtn.title = "Complete your mandatory chores first!";
-      kidSnapBtn.style.opacity = "0.45";
-      kidSnapBtn.style.cursor = "not-allowed";
-    } else {
-      kidSnapBtn.disabled = false;
-      kidSnapBtn.title = "";
-      kidSnapBtn.style.opacity = "1";
-      kidSnapBtn.style.cursor = "pointer";
-    }
-  }
-  
-  activeOnly.sort((a, b) => {
-    if (a.is_mandatory !== b.is_mandatory) return a.is_mandatory ? -1 : 1;
-
-    const aTimed = !!(a.status === "assigned" && a.expires_at);
-    const bTimed = !!(b.status === "assigned" && b.expires_at);
-    if (aTimed !== bTimed) return aTimed ? -1 : 1;
-
-    if (a.status !== b.status) return a.status === "assigned" ? -1 : 1;
-    return 0;
-  });
-  
-  if (activeOnly.length === 0) {
-    kidChoresList.innerHTML = "";
-  } else {
-    activeOnly.forEach(task => {
-      // Locked due to mandatory tasks
-      const isLockedByMandatory = !task.is_mandatory && hasPendingMandatory;
-      // Locked due to incomplete parent task
-      let isLockedByParent = false;
-      if (task.parent_task_id) {
-        const parentTask = kidTasks.find(t => t.id === task.parent_task_id);
-        if (!parentTask || parentTask.status !== "done") {
-          isLockedByParent = true;
-        }
-      }
-
-      const isDisabled = isLockedByMandatory || isLockedByParent;
-      const { emoji, title } = parseChoreTitle(task.title);
-      let displayTitle = task.type === "cooperative" ? `${title} (👥)` : title;
-      if (task.is_mandatory) displayTitle = "🚨 " + displayTitle + " (Mandatory)";
-
-      const iconUrl = task.icon_url ? resolveIconUrl(task.icon_url) : '';
-      const card = document.createElement("div");
-      card.id = `kid-task-${task.id}`;
-      card.dataset.taskId = task.id;
-      card.className = `chore-card ${task.status === 'pending_approval' ? 'submitted' : ''} ${isDisabled ? 'locked-blur' : ''} has-photo`;
-      
-      let timerHtml = "";
-      if (task.status === "assigned" && task.expires_at) {
-        timerHtml = `<div class="task-timer-badge" data-expires="${task.expires_at}" data-mandatory="${task.is_mandatory}" style="margin-top: 0.5rem; font-size: 0.85rem; color: #e65100; font-weight: bold;">⏳ Loading timer...</div>`;
-      }
-
-      let actionHtml = "";
-      if (task.status === "assigned") {
-        actionHtml = `
-          <button class="btn-action-submit" onclick="submitChoreForApproval('${task.id}')" ${isDisabled ? 'disabled title="Complete mandatory chores first!"' : ''}>
-            ✔️
-          </button>
-        `;
-      } else if (task.status === "pending_approval") {
-        actionHtml = `
-          <div class="card-status-badge">
-            <span>⏳ Awaiting Admin Approval</span>
-          </div>
-        `;
-      } else if (task.status === "done") {
-        actionHtml = `
-          <div class="card-status-badge" style="background-color: var(--success-green-light); color: var(--success-green); border-color: var(--success-green);">
-            <span>💚 Completed & Approved!</span>
-          </div>
-        `;
-      } else if (task.status === "expired") {
-        actionHtml = `
-          <div class="card-status-badge" style="background-color: #ffe3e3; color: #e03131; border-color: #ffa8a8; padding: 0.35rem 0.75rem; border-radius: var(--radius-md); font-size: 0.85rem; font-weight: bold;">
-            <span>🚨 Expired</span>
-          </div>
-        `;
-      }
-      
-      const coinHtml = task.type === "cooperative" ? `<span class="points-coin coop-theme">🐱🐱</span>` : `<span class="points-coin">🐱</span>`;
-
-      card.innerHTML = `
-        <div class="card-top">
-          <div class="card-emoji-box">${renderItemIcon(task, emoji, title)}</div>
-          <div class="card-details">
-            <h3 ${isDisabled ? 'style="color: #999;"' : ''}>${displayTitle}</h3>
-            ${timerHtml}
-          </div>
-        </div>
-        <div class="card-actions-row">
-          <div style="display: flex; align-items: center; gap: 0.5rem;">
-            ${task.is_mandatory ? '' : `
-              <div class="card-points-badge">
-                +${task.points_reward} ${coinHtml}
-              </div>
-            `}
-            ${task.continuation_count > 0 ? `
-              <div class="continuation-count-badge" style="color: #475569; font-size: 0.95rem; font-weight: bold; display: inline-flex; align-items: center; gap: 0.2rem; margin-left: 0.5rem;">
-                +${task.continuation_count} 📋
-              </div>
-            ` : ''}
-          </div>
-          <div class="card-controls">
-            ${actionHtml}
-          </div>
-        </div>
-      `;
-
-      if (isDisabled) {
-        const overlay = document.createElement("div");
-        overlay.className = "locked-overlay";
-        overlay.innerHTML = "🔒 Locked";
-        card.appendChild(overlay);
-
-        card.onclick = (e) => {
-          e.stopPropagation();
-          e.preventDefault();
-          
-          let targets = [];
-          if (isLockedByMandatory) {
-            // Prioritize mandatory chores
-            targets = activeOnly.filter(t => t.is_mandatory && (t.status === "assigned" || t.status === "pending_approval"));
-          } else if (isLockedByParent) {
-            // Otherwise, target parent chore
-            const parentTask = activeOnly.find(t => t.id === task.parent_task_id);
-            if (parentTask) {
-              targets = [parentTask];
-            }
-          }
-
-          // Clear any existing flashing highlights first
-          document.querySelectorAll('.flashing-highlight').forEach(el => {
-            el.classList.remove('flashing-highlight');
-          });
-
-          targets.forEach(target => {
-            const targetEl = document.getElementById("kid-task-" + target.id);
-            if (targetEl) {
-              targetEl.scrollIntoView({ behavior: "smooth", block: "center" });
-              // Force animation restart by removing and re-adding after a frame
-              requestAnimationFrame(() => {
-                targetEl.classList.add("flashing-highlight");
-              });
-              setTimeout(() => {
-                targetEl.classList.remove("flashing-highlight");
-              }, 3000);
-            }
-          });
-        };
-      } else {
-        // card onclick removed to only allow image click
-      }
-
-      kidChoresList.appendChild(card);
-    });
-  }
-  
-  await renderKidSidebarWidgets();
-  setTabLoading("kid-chores-content", false);
 }
 
-async function renderKidSidebarWidgets() {
+async function renderKidSidebarWidgets(existingMembers = null) {
   const groupId = currentSession.choregroup_id;
   let kids = [];
   
   try {
-    const members = await apiCall(`/choregroups/${groupId}/members`);
+    const members = (existingMembers && existingMembers.length > 0)
+      ? existingMembers
+      : await apiCall(`/choregroups/${groupId}/members`);
     kids = members.filter(m => m.role === "user");
   } catch (err) {
     return;
@@ -2371,26 +2718,43 @@ async function renderRewardsDashboard() {
   const voteContainer = document.getElementById('kid-rewards-pending-list');
   
   try {
-    const rewards = await apiCall(`/choregroups/${choregroupID}/rewards`) || [];
-    const stats = await apiCall(`/choregroups/${choregroupID}/statistics`) || { users: [], cooperative_points: 0 };
-    const userStats = stats.users.find(u => u.id === currentSession.user_id);
+    const [rewardsData, statsData, membersData, purchasesData, fetchedDailyBonus] = await Promise.all([
+      apiCall(`/choregroups/${choregroupID}/rewards`).catch(() => []),
+      apiCall(`/choregroups/${choregroupID}/statistics`).catch(() => ({ users: [], cooperative_points: 0 })),
+      apiCall(`/choregroups/${choregroupID}/members`).catch(() => []),
+      apiCall(`/choregroups/${choregroupID}/purchases`).catch(() => []),
+      !isParent ? apiCall(`/choregroups/${choregroupID}/daily-bonus`).catch(() => null) : Promise.resolve(null)
+    ]);
+    const rewards = rewardsData || [];
+    const stats = statsData || { users: [], cooperative_points: 0 };
+    const userStats = (stats.users || []).find(u => u.id === currentSession.user_id);
     const myPoints = userStats ? userStats.points : 0;
     const groupPoints = stats.cooperative_points || 0;
     
-    const members = await apiCall(`/choregroups/${choregroupID}/members`) || [];
+    const members = membersData || [];
     const membersMap = {};
     members.forEach(m => {
       membersMap[m.id] = m.username;
     });
 
-    if (!isParent && userStats) {
-      currentSession.points = userStats.points;
-      currentSession.cooperative_points = groupPoints;
+    if (!isParent) {
+      if (userStats) {
+        currentSession.points = userStats.points;
+        currentSession.cooperative_points = groupPoints;
+      }
+      if (fetchedDailyBonus) {
+        currentDailyBonus = fetchedDailyBonus;
+        currentSession.spins_available = fetchedDailyBonus.spins_available || 0;
+      }
+      localStorage.setItem("chorecraft_session", JSON.stringify(currentSession));
       updateHeaderAuthBtn();
+      if (fetchedDailyBonus) {
+        renderDailyBonusBar(fetchedDailyBonus);
+      }
     }
     
-    // Fetch all purchases to handle one-time rewards logic
-    const allPurchases = await apiCall(`/choregroups/${choregroupID}/purchases`) || [];
+    // Process purchases to handle one-time rewards logic
+    const allPurchases = purchasesData || [];
     const purchasedRewardIds = new Set(allPurchases.filter(p => p.status !== 'rejected' && p.status !== 'cancelled').map(p => p.reward_id));
     let availableRewards = rewards.filter(r => !purchasedRewardIds.has(r.id));
     if (!isParent) {
@@ -3176,7 +3540,8 @@ async function handleDelegatedLogin(token) {
       username: res.username || (res.role === "admin" ? "Admin" : "User"),
       role: res.role,
       choregroup_id: res.choregroup_id,
-      choregroup_name: res.role === "admin" ? "My Household" : "User Space"
+      choregroup_name: res.role === "admin" ? "My Household" : "User Space",
+      profile_image_url: res.profile_image_url || null
     });
     showToast("🔑 Logged in automatically!");
   } catch (err) {
@@ -3216,6 +3581,7 @@ window.handleVotePurchase = handleVotePurchase;
 window.handleFulfillPurchase = handleFulfillPurchase;
 window.handleCancelPurchase = handleCancelPurchase;
 window.submitChoreForApproval = submitChoreForApproval;
+window.startSubmission = submitChoreForApproval;
 window.simulateHeroChoreCompletion = simulateHeroChoreCompletion;
 window.switchParentRewardSubTab = switchParentRewardSubTab;
 window.generateKidAccessLink = generateKidAccessLink;
@@ -3228,6 +3594,12 @@ window.dismissPushBanner = dismissPushBanner;
 window.deleteFamilyMember = deleteFamilyMember;
 window.openChangePasswordModal = openChangePasswordModal;
 window.handleSavePassword = handleSavePassword;
+window.openAvatarModal = openAvatarModal;
+window.openModal = openModal;
+window.switchAvatarTab = switchAvatarTab;
+window.handleAvatarFileUpload = handleAvatarFileUpload;
+window.resetAvatarToDefault = resetAvatarToDefault;
+window.saveSelectedAvatar = saveSelectedAvatar;
 window.handleIconUpload = handleIconUpload;
 window.clearIconUpload = clearIconUpload;
 window.openCameraModal = openCameraModal;
@@ -3502,7 +3874,7 @@ async function processAiImageFile(file, defaultMode = 'chore') {
     } else {
       const payload = {
         name: data.title || (isHebrew ? "✨ פרס מהתמונה" : "✨ Reward from Image"),
-        cost: data.points_reward || 1,
+        cost: data.points_reward || 2,
         type: "individual",
         icon_url: data.icon_url || null
       };
@@ -3713,6 +4085,485 @@ window.setTheme = setTheme;
 window.initTheme = initTheme;
 window.handleThemeToggleClick = handleThemeToggleClick;
 window.handleThemeSwitchChange = handleThemeSwitchChange;
+
+/* ==========================================================
+   DAILY BONUS, LUCKY WHEEL & FLYING COINS ANIMATION
+   ========================================================== */
+
+let currentDailyBonus = null;
+let isWheelSpinning = false;
+let wheelCurrentAngle = 0;
+
+const WHEEL_SLICES = [
+  { index: 0, amountLabel: "+1", icon: "🪙",   type: "individual",  amount: 1, color: "#f59e0b" },
+  { index: 1, amountLabel: "+1", icon: "coop", type: "cooperative", amount: 1, color: "#8b5cf6" },
+  { index: 2, amountLabel: "+2", icon: "🪙",   type: "individual",  amount: 2, color: "#eab308" },
+  { index: 3, amountLabel: "0",  icon: "💨",   type: "none",         amount: 0, color: "#334155" },
+  { index: 4, amountLabel: "+1", icon: "🪙",   type: "individual",  amount: 1, color: "#f59e0b" },
+  { index: 5, amountLabel: "+2", icon: "coop", type: "cooperative", amount: 2, color: "#7c3aed" },
+  { index: 6, amountLabel: "+2", icon: "🪙",   type: "individual",  amount: 2, color: "#eab308" },
+  { index: 7, amountLabel: "0",  icon: "💨",   type: "none",         amount: 0, color: "#334155" },
+];
+
+function renderDailyBonusBar(dailyBonus) {
+  const container = document.getElementById("kid-daily-bonus-container");
+  if (!dailyBonus || !currentSession || currentSession.role !== "user") {
+    if (container) container.style.display = "none";
+    return;
+  }
+
+  currentDailyBonus = dailyBonus;
+  const spinsAvail = dailyBonus.spins_available || 0;
+  currentSession.spins_available = spinsAvail;
+  try {
+    localStorage.setItem("chorecraft_session", JSON.stringify(currentSession));
+  } catch (e) {}
+
+  if (container) container.style.display = "block";
+
+  const completed = dailyBonus.tasks_completed || 0;
+  const pct = Math.min(100, Math.max(0, (completed / 5) * 100));
+
+  const fillBar = document.getElementById("daily-bonus-fill-bar");
+  if (fillBar) {
+    fillBar.style.width = `${pct}%`;
+  }
+
+  // Update step indicators 1..5
+  for (let s = 1; s <= 5; s++) {
+    const el = document.getElementById(`bonus-step-${s}`);
+    if (el) {
+      if (completed >= s) {
+        el.classList.add("reached");
+      } else {
+        el.classList.remove("reached");
+      }
+    }
+  }
+
+  // Step 3 (Wheel): glows gold while spins are available, turns green as done once spun
+  const step3 = document.getElementById("bonus-step-3");
+  if (step3) {
+    const isReached = completed >= 3;
+    const hasUnspentSpin = (dailyBonus.spins_available || 0) > 0;
+    if (isReached && hasUnspentSpin) {
+      step3.classList.add("has-reward");
+    } else {
+      step3.classList.remove("has-reward");
+    }
+  }
+
+  // Step 5 (2x Multiplier): glows pink/purple while 2x is active, turns green as done once chore is approved/doubled
+  const step5 = document.getElementById("bonus-step-5");
+  if (step5) {
+    const isReached = completed >= 5;
+    const is2xReady = Boolean(dailyBonus.double_coins_active && !dailyBonus.double_coins_used);
+    if (isReached && is2xReady) {
+      step5.classList.add("has-reward");
+    } else {
+      step5.classList.remove("has-reward");
+    }
+  }
+
+  // Update header wheel badge count
+  updateHeaderWheelBadge(spinsAvail);
+}
+
+function drawWheelCanvas() {
+  const canvas = document.getElementById("wheel-canvas");
+  if (!canvas) return;
+  const ctx = canvas.getContext("2d");
+
+  // High-DPI scaling for sharp rendering on retina mobile displays
+  const dpr = window.devicePixelRatio || 1;
+  const displaySize = 270;
+  if (canvas.width !== displaySize * dpr || canvas.height !== displaySize * dpr) {
+    canvas.width = displaySize * dpr;
+    canvas.height = displaySize * dpr;
+  }
+
+  ctx.save();
+  ctx.scale(dpr, dpr);
+  ctx.clearRect(0, 0, displaySize, displaySize);
+
+  const radius = displaySize / 2;
+  const centerX = radius;
+  const centerY = radius;
+  const numSlices = WHEEL_SLICES.length;
+  const sliceAngle = (2 * Math.PI) / numSlices;
+
+  // 1. Draw each pie slice
+  for (let i = 0; i < numSlices; i++) {
+    const slice = WHEEL_SLICES[i];
+    const startAngle = i * sliceAngle - Math.PI / 2;
+    const endAngle = startAngle + sliceAngle;
+    const midAngle = startAngle + sliceAngle / 2;
+
+    // Wedge
+    ctx.save();
+    ctx.beginPath();
+    ctx.moveTo(centerX, centerY);
+    ctx.arc(centerX, centerY, radius - 4, startAngle, endAngle);
+    ctx.closePath();
+    ctx.fillStyle = slice.color;
+    ctx.fill();
+
+    // Crisp white divider stroke between slices
+    ctx.lineWidth = 2;
+    ctx.strokeStyle = "rgba(255, 255, 255, 0.7)";
+    ctx.stroke();
+    ctx.restore();
+
+    // Prize Medallion on Slice
+    ctx.save();
+    ctx.translate(centerX, centerY);
+    ctx.rotate(midAngle);
+
+    const badgeX = 82;
+    // White circular medallion for maximum contrast & polish
+    ctx.save();
+    ctx.beginPath();
+    ctx.arc(badgeX, 0, 24, 0, Math.PI * 2);
+    ctx.fillStyle = "#ffffff";
+    ctx.shadowColor = "rgba(0, 0, 0, 0.25)";
+    ctx.shadowBlur = 6;
+    ctx.fill();
+
+    // Thin accent ring
+    ctx.lineWidth = 2;
+    ctx.strokeStyle = slice.color;
+    ctx.stroke();
+    ctx.restore();
+
+    // Prize Amount (bold, colored matching theme)
+    ctx.save();
+    ctx.fillStyle = slice.type === 'cooperative' ? '#6d28d9' : (slice.type === 'individual' ? '#b45309' : '#475569');
+    ctx.font = "900 13.5px Nunito, system-ui, sans-serif";
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.fillText(slice.amountLabel, badgeX, -8);
+
+    // Prize Icon (🪙, coop coin, 💨)
+    if (slice.type === 'cooperative') {
+      const coinY = 10;
+      const coinR = 10.5;
+
+      const grad = ctx.createRadialGradient(badgeX - 3, coinY - 3, 1, badgeX, coinY, coinR);
+      grad.addColorStop(0, "#e9d5ff");
+      grad.addColorStop(0.35, "#c084fc");
+      grad.addColorStop(0.7, "#8b5cf6");
+      grad.addColorStop(1, "#581c87");
+
+      ctx.beginPath();
+      ctx.arc(badgeX, coinY, coinR, 0, Math.PI * 2);
+      ctx.fillStyle = grad;
+      ctx.fill();
+      ctx.lineWidth = 1.2;
+      ctx.strokeStyle = "#f3e8ff";
+      ctx.stroke();
+
+      ctx.font = "8px 'Segoe UI Emoji', 'Apple Color Emoji', sans-serif";
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      ctx.fillText("🐱🐱", badgeX, coinY + 0.5);
+    } else if (slice.type === 'individual') {
+      ctx.font = "18px 'Segoe UI Emoji', 'Apple Color Emoji', sans-serif";
+      ctx.fillText("🪙", badgeX, 10);
+    } else {
+      ctx.font = "18px 'Segoe UI Emoji', 'Apple Color Emoji', sans-serif";
+      ctx.fillText("💨", badgeX, 10);
+    }
+    ctx.restore();
+
+    ctx.restore();
+  }
+
+  // 2. Perimeter Studs (golden arcade/casino lights)
+  for (let i = 0; i < numSlices * 2; i++) {
+    const pegAngle = (i * Math.PI) / numSlices;
+    const pegX = centerX + (radius - 9) * Math.cos(pegAngle);
+    const pegY = centerY + (radius - 9) * Math.sin(pegAngle);
+
+    ctx.save();
+    ctx.beginPath();
+    ctx.arc(pegX, pegY, 3, 0, 2 * Math.PI);
+    ctx.fillStyle = "#ffffff";
+    ctx.shadowColor = "rgba(255, 255, 255, 0.9)";
+    ctx.shadowBlur = 3;
+    ctx.fill();
+
+    ctx.beginPath();
+    ctx.arc(pegX, pegY, 1.8, 0, 2 * Math.PI);
+    ctx.fillStyle = "#fbbf24";
+    ctx.fill();
+    ctx.restore();
+  }
+
+  ctx.restore();
+}
+
+async function openWheelModal(mode = 'daily') {
+  const modal = document.getElementById("wheel-modal");
+  if (!modal) return;
+
+  if (!currentDailyBonus && currentSession && currentSession.role === "user") {
+    await fetchAndSyncDailyBonus();
+  }
+
+  const titleEl = document.getElementById("wheel-modal-title");
+  const resultBanner = document.getElementById("wheel-result-banner");
+  const spinBtn = document.getElementById("wheel-spin-action-btn");
+  const doneBtn = document.getElementById("wheel-done-btn");
+  const spinsAvailNum = document.getElementById("wheel-spins-avail-num");
+
+  if (resultBanner) resultBanner.style.display = "none";
+  if (doneBtn) doneBtn.style.display = "none";
+
+  const spinsLeft = (currentDailyBonus && typeof currentDailyBonus.spins_available === 'number')
+    ? currentDailyBonus.spins_available
+    : (typeof currentSession.spins_available === 'number' ? currentSession.spins_available : 0);
+  if (spinsAvailNum) spinsAvailNum.textContent = spinsLeft;
+
+  if (spinBtn) {
+    spinBtn.style.display = "block";
+    spinBtn.disabled = (spinsLeft <= 0);
+  }
+
+  if (titleEl) {
+    if (currentDailyBonus && currentDailyBonus.has_claimed_welcome_spin === false) {
+      titleEl.textContent = "🎉 Lucky Wheel";
+    } else {
+      titleEl.textContent = "🎡 Lucky Wheel";
+    }
+  }
+
+  modal.classList.add("active");
+  drawWheelCanvas();
+}
+
+function closeWheelModal() {
+  if (isWheelSpinning) return;
+  const modal = document.getElementById("wheel-modal");
+  if (modal) modal.classList.remove("active");
+}
+
+async function handleSpinWheelClick() {
+  if (isWheelSpinning) return;
+  const spinsLeft = (currentDailyBonus && typeof currentDailyBonus.spins_available === 'number') ? currentDailyBonus.spins_available : 0;
+  if (spinsLeft <= 0) return;
+
+  const spinBtn = document.getElementById("wheel-spin-action-btn");
+  const resultBanner = document.getElementById("wheel-result-banner");
+  if (resultBanner) resultBanner.style.display = "none";
+
+  if (spinBtn) spinBtn.disabled = true;
+  isWheelSpinning = true;
+
+  try {
+    const groupId = currentSession ? currentSession.choregroup_id : null;
+    const res = await apiCall(`/choregroups/${groupId}/wheel/spin`, "POST");
+
+    const sliceIndex = res.slice_index;
+    const numSlices = WHEEL_SLICES.length;
+    const sliceDeg = 360 / numSlices; // 45 deg
+
+    // Slice 0 starts at -90deg (top).
+    // Center of slice i is at angle: i * 45 + 22.5 deg clockwise from top.
+    // To align slice i with the top indicator, rotation angle:
+    const sliceCenterAngle = sliceIndex * sliceDeg + sliceDeg / 2;
+    const landingAngle = (360 - sliceCenterAngle) % 360;
+
+    // Add at least 5 full spins
+    const fullRotations = 5 * 360;
+    const currentRotMod = wheelCurrentAngle % 360;
+    let delta = (landingAngle - currentRotMod);
+    if (delta < 0) delta += 360;
+    wheelCurrentAngle += fullRotations + delta;
+
+    const canvas = document.getElementById("wheel-canvas");
+    if (canvas) {
+      canvas.style.transition = "transform 5.2s cubic-bezier(0.15, 0.9, 0.2, 1.0)";
+      canvas.style.transform = `rotate(${wheelCurrentAngle}deg)`;
+    }
+
+    // Wait for the wheel animation to conclude (5.3s)
+    setTimeout(() => {
+      isWheelSpinning = false;
+      const doneBtn = document.getElementById("wheel-done-btn");
+      if (spinBtn) spinBtn.style.display = "none";
+      if (doneBtn) doneBtn.style.display = "block";
+
+      const spinsAvailNum = document.getElementById("wheel-spins-avail-num");
+      if (spinsAvailNum) spinsAvailNum.textContent = res.spins_remaining || 0;
+
+      // Update result banner (clean icon & amount)
+      const resultBanner = document.getElementById("wheel-result-banner");
+      const resAmount = document.getElementById("wheel-result-amount");
+      const resIcon = document.getElementById("wheel-result-icon");
+      if (resultBanner) {
+        resultBanner.className = "wheel-result-banner";
+        resultBanner.style.display = "inline-flex";
+
+        if (res.amount > 0) {
+          if (res.reward_type === "cooperative") {
+            resultBanner.classList.add("coop-win");
+            if (resAmount) resAmount.textContent = `+${res.amount}`;
+            if (resIcon) resIcon.innerHTML = '<span class="points-coin coop-theme">🐱🐱</span>';
+          } else {
+            resultBanner.classList.add("individual-win");
+            if (resAmount) resAmount.textContent = `+${res.amount}`;
+            if (resIcon) resIcon.innerHTML = '<span class="points-coin">🐱</span>';
+          }
+          // Trigger flying coins animation!
+          animateCoinsFlight(res.reward_type, res.amount, res.user_points, res.cooperative_points);
+        } else {
+          resultBanner.classList.add("zero-points");
+          if (resAmount) resAmount.textContent = "0";
+          if (resIcon) resIcon.textContent = "💨";
+        }
+      }
+
+      // Refresh daily bonus bar and session storage
+      const remaining = typeof res.spins_remaining === 'number' ? res.spins_remaining : 0;
+      if (currentDailyBonus) {
+        currentDailyBonus.spins_available = remaining;
+        currentDailyBonus.has_claimed_welcome_spin = true;
+        renderDailyBonusBar(currentDailyBonus);
+      } else {
+        updateHeaderWheelBadge(remaining);
+      }
+      if (currentSession) {
+        currentSession.spins_available = remaining;
+        try {
+          localStorage.setItem("chorecraft_session", JSON.stringify(currentSession));
+        } catch (e) {}
+      }
+    }, 5300);
+
+  } catch (err) {
+    console.error("Spin wheel error:", err);
+    isWheelSpinning = false;
+    if (spinBtn) spinBtn.disabled = false;
+    alert(err.message || "Failed to spin the wheel. Please try again!");
+  }
+}
+
+function animateCoinsFlight(rewardType, amount, newPoints, newCoopPoints) {
+  const container = document.getElementById("flying-coins-container");
+  if (!container) return;
+
+  const wheelContainer = document.getElementById("wheel-canvas-container");
+  const wheelRect = wheelContainer ? wheelContainer.getBoundingClientRect() : {
+    left: window.innerWidth / 2 - 20,
+    top: window.innerHeight / 2 - 20,
+    width: 40,
+    height: 40
+  };
+
+  const startX = wheelRect.left + wheelRect.width / 2;
+  const startY = wheelRect.top + wheelRect.height / 2;
+
+  // Determine target header element
+  const targetId = rewardType === "cooperative" ? "header-coin-chip-cooperative" : "header-coin-chip-individual";
+  const targetEl = document.getElementById(targetId) || document.getElementById("header-user-stats");
+  
+  let targetX = window.innerWidth / 2;
+  let targetY = 30;
+  if (targetEl) {
+    const targetRect = targetEl.getBoundingClientRect();
+    targetX = targetRect.left + targetRect.width / 2;
+    targetY = targetRect.top + targetRect.height / 2;
+  }
+
+  const isCoop = (rewardType === "cooperative");
+  const numCoins = Math.max(1, amount); // Exact correct number of coins!
+  const duration = 1400; // ms: slower, graceful arc
+
+  const indAmountEl = document.getElementById("header-coin-amount-individual");
+  const coopAmountEl = document.getElementById("header-coin-amount-cooperative");
+
+  for (let i = 0; i < numCoins; i++) {
+    const delay = i * 240;
+    setTimeout(() => {
+      const coin = document.createElement("div");
+      coin.className = "flying-coin-particle";
+      coin.innerHTML = isCoop
+        ? '<span class="points-coin coop-theme" style="width: 36px; height: 36px; font-size: 13px; box-shadow: 0 6px 18px rgba(139, 92, 246, 0.7);">🐱🐱</span>'
+        : '<span class="points-coin" style="width: 36px; height: 36px; font-size: 18px; box-shadow: 0 6px 18px rgba(245, 158, 11, 0.7);">🐱</span>';
+      coin.style.left = `${startX}px`;
+      coin.style.top = `${startY}px`;
+      coin.style.transform = `translate(-50%, -50%) scale(0.5)`;
+      coin.style.opacity = "0";
+      container.appendChild(coin);
+
+      // Randomize spread for natural arc
+      const spreadX = (Math.random() - 0.5) * 80;
+      const spreadY = (Math.random() - 0.5) * 60;
+
+      const startTime = performance.now();
+
+      function step(currentTime) {
+        const elapsed = currentTime - startTime;
+        const progress = Math.min(elapsed / duration, 1);
+
+        if (progress < 0.25) {
+          const p = progress / 0.25;
+          const scale = 0.5 + p * 0.9;
+          coin.style.opacity = `${p}`;
+          coin.style.transform = `translate(-50%, -50%) translate(${spreadX * p}px, ${spreadY * p}px) scale(${scale})`;
+        } else {
+          const p = (progress - 0.25) / 0.75;
+          const currentX = (1 - p) * (startX + spreadX) + p * targetX;
+          const currentY = Math.pow(1 - p, 2) * (startY + spreadY) + 2 * (1 - p) * p * (Math.min(startY, targetY) - 60) + Math.pow(p, 2) * targetY;
+          const scale = 1.4 * (1 - p * 0.6);
+          coin.style.transform = `translate(-50%, -50%) translate(${currentX - startX}px, ${currentY - startY}px) scale(${scale}) rotate(${p * 360}deg)`;
+        }
+
+        if (progress < 1) {
+          requestAnimationFrame(step);
+        } else {
+          coin.remove();
+
+          // Pulse target header counter as coin lands
+          if (targetEl) {
+            targetEl.classList.remove("coin-collect-pulse");
+            void targetEl.offsetWidth; // Trigger reflow
+            targetEl.classList.add("coin-collect-pulse");
+            setTimeout(() => targetEl.classList.remove("coin-collect-pulse"), 700);
+          }
+
+          // Incrementally update counter for each arriving coin
+          if (rewardType === "cooperative" && newCoopPoints !== undefined) {
+            const currentStepVal = (newCoopPoints - amount) + (i + 1);
+            if (coopAmountEl) coopAmountEl.textContent = currentStepVal;
+          } else if (newPoints !== undefined) {
+            const currentStepVal = (newPoints - amount) + (i + 1);
+            if (indAmountEl) indAmountEl.textContent = currentStepVal;
+          }
+
+          if (i === numCoins - 1) {
+            // Final coin arrived: finalize session values
+            if (currentSession) {
+              if (newPoints !== undefined) currentSession.points = newPoints;
+              if (newCoopPoints !== undefined) currentSession.cooperative_points = newCoopPoints;
+              localStorage.setItem("chorecraft_session", JSON.stringify(currentSession));
+            }
+            if (indAmountEl && newPoints !== undefined) indAmountEl.textContent = newPoints;
+            if (coopAmountEl && newCoopPoints !== undefined) coopAmountEl.textContent = newCoopPoints;
+          }
+        }
+      }
+
+      requestAnimationFrame(step);
+    }, delay);
+  }
+}
+
+window.openWheelModal = openWheelModal;
+window.closeWheelModal = closeWheelModal;
+window.handleSpinWheelClick = handleSpinWheelClick;
+window.drawWheelCanvas = drawWheelCanvas;
+
 
 
 

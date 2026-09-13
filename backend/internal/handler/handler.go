@@ -95,6 +95,7 @@ func (a *API) RegisterRoutes(r *chi.Mux) {
 		r.Post("/members/{userID}/login-link", a.generateLoginLink)
 		r.Delete("/members/{userID}", a.deleteUser)
 		r.Put("/members/{userID}/password", a.updatePassword)
+		r.Put("/members/{userID}/avatar", a.updateAvatar)
 		// Rewards
 		r.Post("/rewards", a.createReward)
 		r.Get("/rewards", a.listRewards)
@@ -111,6 +112,9 @@ func (a *API) RegisterRoutes(r *chi.Mux) {
 		// AI Vision Analyzer
 		r.Post("/ai/analyze-image", a.analyzeImageForChoreOrReward)
 		r.Put("/ai/language", a.updateChoreGroupAILanguage)
+		// Daily Bonus & Lucky Wheel
+		r.Get("/daily-bonus", a.getDailyBonus)
+		r.Post("/wheel/spin", a.spinWheel)
 	})
 }
 
@@ -832,6 +836,40 @@ func (a *API) updatePassword(w http.ResponseWriter, r *http.Request) {
 	a.broker.Broadcast(loggedInUser.ChoreGroupID, "refresh")
 }
 
+// updateAvatar handles PUT /api/choregroups/{choregroupID}/members/{userID}/avatar
+func (a *API) updateAvatar(w http.ResponseWriter, r *http.Request) {
+	loggedInUser := r.Context().Value(userKey).(model.User)
+
+	targetUserID, err := uuid.Parse(chi.URLParam(r, "userID"))
+	if err != nil {
+		http.Error(w, "Invalid User ID", http.StatusBadRequest)
+		return
+	}
+
+	var req model.UpdateAvatarRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	err = a.service.UpdateUserProfileImage(r.Context(), loggedInUser, targetUserID, req.AvatarURL)
+	if errors.Is(err, service.ErrForbidden) {
+		http.Error(w, "Forbidden", http.StatusForbidden)
+		return
+	} else if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	json.NewEncoder(w).Encode(map[string]string{
+		"message":    "Avatar updated successfully",
+		"avatar_url": req.AvatarURL,
+	})
+	a.broker.Broadcast(loggedInUser.ChoreGroupID, "refresh")
+}
+
 
 // authMiddleware fetches the user from the database and performs authorization using JWT session cookie.
 func (a *API) authMiddleware(next http.Handler) http.Handler {
@@ -1130,11 +1168,13 @@ func (a *API) loginDelegated(w http.ResponseWriter, r *http.Request) {
 	}
 
 	res := model.LoginResponse{
-		UserID:         claims.UserID,
-		Username:       user.Username,
-		ChoreGroupID:   claims.ChoreGroupID,
-		ChoreGroupName: group.Name,
-		Role:           claims.Role,
+		UserID:                claims.UserID,
+		Username:              user.Username,
+		ChoreGroupID:          claims.ChoreGroupID,
+		ChoreGroupName:        group.Name,
+		Role:                  claims.Role,
+		HasClaimedWelcomeSpin: user.HasClaimedWelcomeSpin,
+		ProfileImageURL:       user.ProfileImageURL,
 	}
 	json.NewEncoder(w).Encode(res)
 }
@@ -1173,3 +1213,68 @@ func (a *API) generateLoginLink(w http.ResponseWriter, r *http.Request) {
 	}
 	json.NewEncoder(w).Encode(resp)
 }
+
+// getDailyBonus handles GET /api/choregroups/{choregroupID}/daily-bonus
+func (a *API) getDailyBonus(w http.ResponseWriter, r *http.Request) {
+	user, ok := r.Context().Value(userKey).(model.User)
+	if !ok {
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	choregroupID, err := uuid.Parse(chi.URLParam(r, "choregroupID"))
+	if err != nil {
+		http.Error(w, "Invalid choregroup ID", http.StatusBadRequest)
+		return
+	}
+
+	status, err := a.service.GetDailyBonusStatus(r.Context(), choregroupID, user.ID)
+	if err != nil {
+		if errors.Is(err, service.ErrForbidden) {
+			http.Error(w, "Forbidden", http.StatusForbidden)
+			return
+		}
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(status)
+}
+
+// spinWheel handles POST /api/choregroups/{choregroupID}/wheel/spin
+func (a *API) spinWheel(w http.ResponseWriter, r *http.Request) {
+	user, ok := r.Context().Value(userKey).(model.User)
+	if !ok {
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	if user.Role != "user" {
+		http.Error(w, "Only kid users can spin the wheel", http.StatusForbidden)
+		return
+	}
+
+	choregroupID, err := uuid.Parse(chi.URLParam(r, "choregroupID"))
+	if err != nil {
+		http.Error(w, "Invalid choregroup ID", http.StatusBadRequest)
+		return
+	}
+
+	result, err := a.service.SpinWheel(r.Context(), choregroupID, user)
+	if err != nil {
+		if errors.Is(err, service.ErrNoSpinsAvailable) {
+			http.Error(w, "No spins available", http.StatusBadRequest)
+			return
+		}
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	// Broadcast refresh to update coin counters across all open sessions in household
+	a.broker.Broadcast(choregroupID, "refresh")
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(result)
+}
+

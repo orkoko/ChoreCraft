@@ -87,8 +87,8 @@ func (r *Repository) AddUserToChoreGroup(ctx context.Context, choregroupName, us
 // GetUserByUsername retrieves a user by their unique username.
 func (r *Repository) GetUserByUsername(ctx context.Context, username string) (model.User, error) {
 	var user model.User
-	err := r.db.QueryRow(ctx, "SELECT id, choregroup_id, username, password_hash, role, points, notifications_viewed FROM users WHERE username = $1", username).Scan(
-		&user.ID, &user.ChoreGroupID, &user.Username, &user.PasswordHash, &user.Role, &user.Points, &user.NotificationsViewed)
+	err := r.db.QueryRow(ctx, "SELECT id, choregroup_id, username, password_hash, role, points, notifications_viewed, has_claimed_welcome_spin, profile_image_url FROM users WHERE username = $1", username).Scan(
+		&user.ID, &user.ChoreGroupID, &user.Username, &user.PasswordHash, &user.Role, &user.Points, &user.NotificationsViewed, &user.HasClaimedWelcomeSpin, &user.ProfileImageURL)
 	return user, err
 }
 
@@ -102,14 +102,14 @@ func (r *Repository) UpdateUserPassword(ctx context.Context, userID, choregroupI
 // GetUserByID retrieves a user by their ID.
 func (r *Repository) GetUserByID(ctx context.Context, userID uuid.UUID) (model.User, error) {
 	var user model.User
-	err := r.db.QueryRow(ctx, "SELECT id, choregroup_id, username, role, points, notifications_viewed FROM users WHERE id = $1", userID).Scan(
-		&user.ID, &user.ChoreGroupID, &user.Username, &user.Role, &user.Points, &user.NotificationsViewed)
+	err := r.db.QueryRow(ctx, "SELECT id, choregroup_id, username, role, points, notifications_viewed, has_claimed_welcome_spin, profile_image_url FROM users WHERE id = $1", userID).Scan(
+		&user.ID, &user.ChoreGroupID, &user.Username, &user.Role, &user.Points, &user.NotificationsViewed, &user.HasClaimedWelcomeSpin, &user.ProfileImageURL)
 	return user, err
 }
 
 // GetUsersByChoreGroupID retrieves all users belonging to a specific choregroup.
 func (r *Repository) GetUsersByChoreGroupID(ctx context.Context, choregroupID uuid.UUID) ([]model.User, error) {
-	rows, err := r.db.Query(ctx, "SELECT id, choregroup_id, username, role, points, notifications_viewed FROM users WHERE choregroup_id = $1", choregroupID)
+	rows, err := r.db.Query(ctx, "SELECT id, choregroup_id, username, role, points, notifications_viewed, has_claimed_welcome_spin, profile_image_url FROM users WHERE choregroup_id = $1", choregroupID)
 	if err != nil {
 		return nil, err
 	}
@@ -118,7 +118,7 @@ func (r *Repository) GetUsersByChoreGroupID(ctx context.Context, choregroupID uu
 	var users []model.User
 	for rows.Next() {
 		var user model.User
-		if err := rows.Scan(&user.ID, &user.ChoreGroupID, &user.Username, &user.Role, &user.Points, &user.NotificationsViewed); err != nil {
+		if err := rows.Scan(&user.ID, &user.ChoreGroupID, &user.Username, &user.Role, &user.Points, &user.NotificationsViewed, &user.HasClaimedWelcomeSpin, &user.ProfileImageURL); err != nil {
 			return nil, err
 		}
 		users = append(users, user)
@@ -243,7 +243,7 @@ func (r *Repository) ListAllTasksForChoreGroup(ctx context.Context, choregroupID
 
 // GetUsersSortedByPoints retrieves users for a specific choregroup, sorted by points.
 func (r *Repository) GetUsersSortedByPoints(ctx context.Context, choregroupID uuid.UUID) ([]model.User, error) {
-	rows, err := r.db.Query(ctx, "SELECT id, choregroup_id, username, role, points, notifications_viewed FROM users WHERE choregroup_id = $1 ORDER BY points DESC", choregroupID)
+	rows, err := r.db.Query(ctx, "SELECT id, choregroup_id, username, role, points, notifications_viewed, has_claimed_welcome_spin, profile_image_url FROM users WHERE choregroup_id = $1 ORDER BY points DESC", choregroupID)
 	if err != nil {
 		return nil, err
 	}
@@ -251,7 +251,7 @@ func (r *Repository) GetUsersSortedByPoints(ctx context.Context, choregroupID uu
 	var users []model.User
 	for rows.Next() {
 		var user model.User
-		if err := rows.Scan(&user.ID, &user.ChoreGroupID, &user.Username, &user.Role, &user.Points, &user.NotificationsViewed); err != nil {
+		if err := rows.Scan(&user.ID, &user.ChoreGroupID, &user.Username, &user.Role, &user.Points, &user.NotificationsViewed, &user.HasClaimedWelcomeSpin, &user.ProfileImageURL); err != nil {
 			return nil, err
 		}
 		users = append(users, user)
@@ -520,9 +520,15 @@ func (r *Repository) UpdateChoreGroupAILanguage(ctx context.Context, choregroupI
 // GetUserByChoreGroupIDAndUsername retrieves a user by their choregroupID and username.
 func (r *Repository) GetUserByChoreGroupIDAndUsername(ctx context.Context, choregroupID uuid.UUID, username string) (model.User, error) {
 	var user model.User
-	err := r.db.QueryRow(ctx, "SELECT id, choregroup_id, username, password_hash, role, points FROM users WHERE choregroup_id = $1 AND username = $2", choregroupID, username).Scan(
-		&user.ID, &user.ChoreGroupID, &user.Username, &user.PasswordHash, &user.Role, &user.Points)
+	err := r.db.QueryRow(ctx, "SELECT id, choregroup_id, username, password_hash, role, points, notifications_viewed, has_claimed_welcome_spin, profile_image_url FROM users WHERE choregroup_id = $1 AND username = $2", choregroupID, username).Scan(
+		&user.ID, &user.ChoreGroupID, &user.Username, &user.PasswordHash, &user.Role, &user.Points, &user.NotificationsViewed, &user.HasClaimedWelcomeSpin, &user.ProfileImageURL)
 	return user, err
+}
+
+// UpdateUserProfileImage updates the profile image URL for a user.
+func (r *Repository) UpdateUserProfileImage(ctx context.Context, userID uuid.UUID, profileImageURL *string) error {
+	_, err := r.db.Exec(ctx, "UPDATE users SET profile_image_url = $1 WHERE id = $2", profileImageURL, userID)
+	return err
 }
 
 // SavePushSubscription upserts a web push subscription for a user.
@@ -563,3 +569,197 @@ func (r *Repository) DeletePushSubscription(ctx context.Context, endpoint string
 	_, err := r.db.Exec(ctx, "DELETE FROM push_subscriptions WHERE endpoint = $1", endpoint)
 	return err
 }
+
+var ErrNoSpinsAvailable = errors.New("no spins available")
+
+// GetUserDailyProgress retrieves today's progress for a user, creating an initial record if not present.
+func (r *Repository) GetUserDailyProgress(ctx context.Context, choregroupID, userID uuid.UUID) (*model.UserDailyProgress, error) {
+	var p model.UserDailyProgress
+	err := r.db.QueryRow(ctx,
+		`SELECT id, user_id, choregroup_id, date, tasks_completed, spins_earned, spins_used, double_coins_active, double_coins_used
+		 FROM user_daily_progress
+		 WHERE choregroup_id = $1 AND user_id = $2 AND date = CURRENT_DATE`,
+		choregroupID, userID,
+	).Scan(&p.ID, &p.UserID, &p.ChoreGroupID, &p.Date, &p.TasksCompleted, &p.SpinsEarned, &p.SpinsUsed, &p.DoubleCoinsActive, &p.DoubleCoinsUsed)
+
+	if errors.Is(err, pgx.ErrNoRows) {
+		id := uuid.New()
+		err = r.db.QueryRow(ctx,
+			`INSERT INTO user_daily_progress (id, user_id, choregroup_id, date, tasks_completed, spins_earned, spins_used, double_coins_active, double_coins_used)
+			 VALUES ($1, $2, $3, CURRENT_DATE, 0, 0, 0, FALSE, FALSE)
+			 ON CONFLICT (user_id, date) DO UPDATE SET choregroup_id = EXCLUDED.choregroup_id
+			 RETURNING id, user_id, choregroup_id, date, tasks_completed, spins_earned, spins_used, double_coins_active, double_coins_used`,
+			id, userID, choregroupID,
+		).Scan(&p.ID, &p.UserID, &p.ChoreGroupID, &p.Date, &p.TasksCompleted, &p.SpinsEarned, &p.SpinsUsed, &p.DoubleCoinsActive, &p.DoubleCoinsUsed)
+		if err != nil {
+			return nil, err
+		}
+		return &p, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &p, nil
+}
+
+// RecordDailyTaskCompletion increments the completed tasks count for today and triggers milestone rewards (milestone 3: 1 spin, milestone 5: 2x coins).
+func (r *Repository) RecordDailyTaskCompletion(ctx context.Context, choregroupID, userID uuid.UUID) error {
+	// Ensure today's record exists first
+	_, err := r.GetUserDailyProgress(ctx, choregroupID, userID)
+	if err != nil {
+		return err
+	}
+
+	_, err = r.db.Exec(ctx,
+		`UPDATE user_daily_progress
+		 SET tasks_completed = tasks_completed + 1,
+		     spins_earned = CASE
+		         WHEN tasks_completed + 1 >= 3 AND spins_earned = 0 THEN 1
+		         ELSE spins_earned
+		     END,
+		     double_coins_active = CASE
+		         WHEN tasks_completed + 1 >= 5 AND NOT double_coins_used AND NOT double_coins_active THEN TRUE
+		         ELSE double_coins_active
+		     END
+		 WHERE choregroup_id = $1 AND user_id = $2 AND date = CURRENT_DATE`,
+		choregroupID, userID,
+	)
+	return err
+}
+
+// CheckAndConsumeDoubleCoins checks if today's double coins bonus is active, and if so, consumes it and returns true.
+func (r *Repository) CheckAndConsumeDoubleCoins(ctx context.Context, choregroupID, userID uuid.UUID) (bool, error) {
+	var consumed bool
+	err := r.db.QueryRow(ctx,
+		`UPDATE user_daily_progress
+		 SET double_coins_active = FALSE, double_coins_used = TRUE
+		 WHERE choregroup_id = $1 AND user_id = $2 AND date = CURRENT_DATE AND double_coins_active = TRUE
+		 RETURNING TRUE`,
+		choregroupID, userID,
+	).Scan(&consumed)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	return consumed, nil
+}
+
+// ClaimWheelSpin validates and executes a wheel spin in a single transaction, consuming the spin and applying any won points.
+func (r *Repository) ClaimWheelSpin(ctx context.Context, choregroupID, userID uuid.UUID, sliceIndex int, label string, pointsWon int, pointsType string) (*model.WheelSpinResponse, error) {
+	tx, err := r.db.Begin(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer tx.Rollback(ctx)
+
+	// Verify user role and welcome spin status
+	var role string
+	var hasClaimedWelcomeSpin bool
+	var currentPoints int
+	err = tx.QueryRow(ctx,
+		"SELECT role, has_claimed_welcome_spin, points FROM users WHERE id = $1 AND choregroup_id = $2 FOR UPDATE",
+		userID, choregroupID,
+	).Scan(&role, &hasClaimedWelcomeSpin, &currentPoints)
+	if err != nil {
+		return nil, err
+	}
+
+	if role != "user" {
+		return nil, errors.New("only kid users can spin the wheel")
+	}
+
+	// Fetch or initialize today's daily progress
+	var spinsEarned, spinsUsed int
+	err = tx.QueryRow(ctx,
+		`SELECT spins_earned, spins_used FROM user_daily_progress
+		 WHERE choregroup_id = $1 AND user_id = $2 AND date = CURRENT_DATE FOR UPDATE`,
+		choregroupID, userID,
+	).Scan(&spinsEarned, &spinsUsed)
+	if errors.Is(err, pgx.ErrNoRows) {
+		spinsEarned = 0
+		spinsUsed = 0
+	} else if err != nil {
+		return nil, err
+	}
+
+	welcomeAvailable := !hasClaimedWelcomeSpin
+	dailyAvailable := spinsEarned > spinsUsed
+
+	if !welcomeAvailable && !dailyAvailable {
+		return nil, ErrNoSpinsAvailable
+	}
+
+	// Consume spin: prioritize welcome spin first if available, else daily spin
+	if welcomeAvailable {
+		_, err = tx.Exec(ctx, "UPDATE users SET has_claimed_welcome_spin = TRUE WHERE id = $1", userID)
+		if err != nil {
+			return nil, err
+		}
+	} else {
+		_, err = tx.Exec(ctx,
+			`UPDATE user_daily_progress
+			 SET spins_used = spins_used + 1
+			 WHERE choregroup_id = $1 AND user_id = $2 AND date = CURRENT_DATE`,
+			choregroupID, userID,
+		)
+		if err != nil {
+			return nil, err
+		}
+		spinsUsed++
+	}
+
+	// Award coins if points won
+	if pointsWon > 0 {
+		if pointsType == "individual" {
+			_, err = tx.Exec(ctx, "UPDATE users SET points = points + $1 WHERE id = $2", pointsWon, userID)
+			if err != nil {
+				return nil, err
+			}
+		} else if pointsType == "cooperative" {
+			_, err = tx.Exec(ctx, "UPDATE choregroups SET cooperative_points = cooperative_points + $1 WHERE id = $2", pointsWon, choregroupID)
+			if err != nil {
+				return nil, err
+			}
+		}
+	}
+
+	// Read fresh points
+	var newUserPoints, newCoopPoints int
+	err = tx.QueryRow(ctx, "SELECT points FROM users WHERE id = $1", userID).Scan(&newUserPoints)
+	if err != nil {
+		return nil, err
+	}
+	err = tx.QueryRow(ctx, "SELECT cooperative_points FROM choregroups WHERE id = $1", choregroupID).Scan(&newCoopPoints)
+	if err != nil {
+		return nil, err
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return nil, err
+	}
+
+	spinsRemaining := 0
+	if !hasClaimedWelcomeSpin && welcomeAvailable {
+		if dailyAvailable {
+			spinsRemaining = spinsEarned - spinsUsed
+		}
+	} else {
+		spinsRemaining = spinsEarned - spinsUsed
+		if spinsRemaining < 0 {
+			spinsRemaining = 0
+		}
+	}
+
+	return &model.WheelSpinResponse{
+		SliceIndex:        sliceIndex,
+		Label:             label,
+		RewardType:        pointsType,
+		Amount:            pointsWon,
+		UserPoints:        newUserPoints,
+		CooperativePoints: newCoopPoints,
+		SpinsRemaining:    spinsRemaining,
+	}, nil
+}
+

@@ -119,6 +119,38 @@ func TestCalculateChoreCoins(t *testing.T) {
 	}
 }
 
+func TestCalculateRewardCoins(t *testing.T) {
+	tests := []struct {
+		name     string
+		usd      float64
+		expected int
+	}{
+		{"zero or negative fallback", 0.0, 10},
+		{"micro treat $1", 1.0, 2},
+		{"snack $2.50", 2.5, 6}, // round(2.5) = 3 -> 3 * 2 = 6
+		{"candy bar $3", 3.0, 6},
+		{"ice cream $5", 5.0, 10},
+		{"cinema ticket $10", 10.0, 20},
+		{"small toy $12", 12.0, 20}, // ((12+2)/5)*5 = 10 * 2 = 20
+		{"board game $15", 15.0, 30},
+		{"pizza $20", 20.0, 40},
+		{"lego set $25", 25.0, 50},
+		{"headphones $40", 40.0, 80},
+		{"video game $60", 60.0, 120},
+		{"smartwatch $100", 100.0, 200},
+		{"bicycle $250", 250.0, 500},
+		{"ps5 console $500", 500.0, 1000},
+		{"gaming laptop $1000", 1000.0, 2000},
+	}
+
+	for _, tc := range tests {
+		got := service.CalculateRewardCoins(tc.usd)
+		if got != tc.expected {
+			t.Errorf("CalculateRewardCoins(%f) [%s] = %d; want %d", tc.usd, tc.name, got, tc.expected)
+		}
+	}
+}
+
 func TestDeleteUploadedPhoto(t *testing.T) {
 	_ = os.MkdirAll("./uploads", 0755)
 	dummyFile := filepath.Join("./uploads", "test_delete_sample.jpg")

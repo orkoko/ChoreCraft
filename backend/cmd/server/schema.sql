@@ -100,3 +100,25 @@ ALTER TABLE rewards ADD COLUMN IF NOT EXISTS icon_url TEXT;
 -- Migration to support household-level AI generated content language
 ALTER TABLE choregroups ADD COLUMN IF NOT EXISTS ai_language VARCHAR(10) NOT NULL DEFAULT 'he';
 
+-- Migration to support daily bonuses and lucky wheel
+CREATE TABLE IF NOT EXISTS user_daily_progress (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    choregroup_id UUID NOT NULL REFERENCES choregroups(id) ON DELETE CASCADE,
+    date DATE NOT NULL DEFAULT CURRENT_DATE,
+    tasks_completed INTEGER NOT NULL DEFAULT 0,
+    spins_earned INTEGER NOT NULL DEFAULT 0,
+    spins_used INTEGER NOT NULL DEFAULT 0,
+    double_coins_active BOOLEAN NOT NULL DEFAULT FALSE,
+    double_coins_used BOOLEAN NOT NULL DEFAULT FALSE,
+    CONSTRAINT user_daily_progress_user_date_key UNIQUE (user_id, date)
+);
+
+-- Migration to track first-time login welcome wheel spin for kids
+ALTER TABLE users ADD COLUMN IF NOT EXISTS has_claimed_welcome_spin BOOLEAN NOT NULL DEFAULT FALSE;
+
+-- Migration to support user profile images and avatars
+ALTER TABLE users ADD COLUMN IF NOT EXISTS profile_image_url TEXT;
+
+
+

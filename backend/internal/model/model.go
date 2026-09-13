@@ -19,13 +19,20 @@ type ChoreGroup struct {
 
 // User represents the users table.
 type User struct {
-	ID                  uuid.UUID `json:"id"`
-	ChoreGroupID        uuid.UUID `json:"choregroup_id"`
-	Username            string    `json:"username"`
-	PasswordHash        string    `json:"-"`
-	Role                string    `json:"role"`
-	Points              int       `json:"points"`
-	NotificationsViewed bool      `json:"notifications_viewed"`
+	ID                    uuid.UUID `json:"id"`
+	ChoreGroupID          uuid.UUID `json:"choregroup_id"`
+	Username              string    `json:"username"`
+	PasswordHash          string    `json:"-"`
+	Role                  string    `json:"role"`
+	Points                int       `json:"points"`
+	NotificationsViewed   bool      `json:"notifications_viewed"`
+	HasClaimedWelcomeSpin bool      `json:"has_claimed_welcome_spin"`
+	ProfileImageURL       *string   `json:"profile_image_url,omitempty"`
+}
+
+// UpdateAvatarRequest defines the body for updating a user's profile image / avatar.
+type UpdateAvatarRequest struct {
+	AvatarURL string `json:"avatar_url"`
 }
 
 // Task represents the tasks table.
@@ -118,11 +125,13 @@ type DelegatedLoginRequest struct {
 
 // LoginResponse defines the data returned upon successful login.
 type LoginResponse struct {
-	UserID         uuid.UUID `json:"user_id"`
-	Username       string    `json:"username"`
-	ChoreGroupID   uuid.UUID `json:"choregroup_id"`
-	ChoreGroupName string    `json:"choregroup_name"`
-	Role           string    `json:"role"`
+	UserID                uuid.UUID `json:"user_id"`
+	Username              string    `json:"username"`
+	ChoreGroupID          uuid.UUID `json:"choregroup_id"`
+	ChoreGroupName        string    `json:"choregroup_name"`
+	Role                  string    `json:"role"`
+	HasClaimedWelcomeSpin bool      `json:"has_claimed_welcome_spin"`
+	ProfileImageURL       *string   `json:"profile_image_url,omitempty"`
 }
 
 // CreateTaskRequest defines the body for creating a new task.
@@ -218,3 +227,41 @@ type AIImageAnalysisResult struct {
 	IconURL            string  `json:"icon_url"`
 	SuggestedEmoji     string  `json:"suggested_emoji"`
 }
+
+// UserDailyProgress represents the user_daily_progress table.
+type UserDailyProgress struct {
+	ID                uuid.UUID `json:"id"`
+	UserID            uuid.UUID `json:"user_id"`
+	ChoreGroupID      uuid.UUID `json:"choregroup_id"`
+	Date              time.Time `json:"date"`
+	TasksCompleted    int       `json:"tasks_completed"`
+	SpinsEarned       int       `json:"spins_earned"`
+	SpinsUsed         int       `json:"spins_used"`
+	DoubleCoinsActive bool      `json:"double_coins_active"`
+	DoubleCoinsUsed   bool      `json:"double_coins_used"`
+}
+
+// DailyBonusStatusResponse defines the status returned for the daily bonus bar.
+type DailyBonusStatusResponse struct {
+	Date                  string `json:"date"`
+	TasksCompleted        int    `json:"tasks_completed"`
+	TargetWheel           int    `json:"target_wheel"`
+	TargetDouble          int    `json:"target_double"`
+	SpinsAvailable        int    `json:"spins_available"`
+	WheelUnlocked         bool   `json:"wheel_unlocked"`
+	DoubleCoinsActive     bool   `json:"double_coins_active"`
+	DoubleCoinsUsed       bool   `json:"double_coins_used"`
+	HasClaimedWelcomeSpin bool   `json:"has_claimed_welcome_spin"`
+}
+
+// WheelSpinResponse defines the response returned after spinning the lucky wheel.
+type WheelSpinResponse struct {
+	SliceIndex        int    `json:"slice_index"`
+	Label             string `json:"label"`
+	RewardType        string `json:"reward_type"` // "individual", "cooperative", "none"
+	Amount            int    `json:"amount"`
+	UserPoints        int    `json:"user_points"`
+	CooperativePoints int    `json:"cooperative_points"`
+	SpinsRemaining    int    `json:"spins_remaining"`
+}
+
