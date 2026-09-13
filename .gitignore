@@ -44,3 +44,9 @@ yarn-error.log*
 
 # Scratch files
 backend/list_models.go
+
+# Uploaded user images & assets
+backend/uploads/*
+!backend/uploads/.gitkeep
+uploads/*
+!uploads/.gitkeep

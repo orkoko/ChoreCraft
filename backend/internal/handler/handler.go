@@ -6,9 +6,11 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"time"
 
@@ -106,8 +108,12 @@ func (a *API) RegisterRoutes(r *chi.Mux) {
 		r.Delete("/purchases/{purchaseID}", a.cancelPurchase)
 		// Uploads
 		r.Post("/upload", a.uploadIcon)
+		// AI Vision Analyzer
+		r.Post("/ai/analyze-image", a.analyzeImageForChoreOrReward)
+		r.Put("/ai/language", a.updateChoreGroupAILanguage)
 	})
 }
+
 
 // uploadIcon handles image file uploads for custom task and reward icons.
 func (a *API) uploadIcon(w http.ResponseWriter, r *http.Request) {
@@ -164,6 +170,160 @@ func (a *API) uploadIcon(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusCreated)
 	json.NewEncoder(w).Encode(map[string]string{"icon_url": iconURL})
 }
+
+var apiKeyRegex = regexp.MustCompile(`([?&]key=)[^&"\s]+`)
+
+func sanitizeErrorString(s string) string {
+	return apiKeyRegex.ReplaceAllString(s, "${1}[REDACTED]")
+}
+
+// analyzeImageForChoreOrReward handles photo upload & AI vision analysis to create a Chore or Reward with Fibonacci coins.
+func (a *API) analyzeImageForChoreOrReward(w http.ResponseWriter, r *http.Request) {
+	user, ok := r.Context().Value(userKey).(model.User)
+	if !ok {
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	if err := r.ParseMultipartForm(32 << 20); err != nil {
+		http.Error(w, "File too large (max 32MB)", http.StatusBadRequest)
+		return
+	}
+
+	file, header, err := r.FormFile("image")
+	if err != nil {
+		file, header, err = r.FormFile("file")
+		if err != nil {
+			http.Error(w, "Missing image file in request (use 'image' or 'file' form field)", http.StatusBadRequest)
+			return
+		}
+	}
+	defer file.Close()
+
+	ext := strings.ToLower(filepath.Ext(header.Filename))
+	allowedExts := map[string]bool{".png": true, ".jpg": true, ".jpeg": true, ".webp": true, ".gif": true, ".svg": true}
+	browserCT := header.Header.Get("Content-Type")
+	if !allowedExts[ext] && !strings.HasPrefix(browserCT, "image/") {
+		http.Error(w, "Invalid file format. Only image files are allowed.", http.StatusBadRequest)
+		return
+	}
+	if ext == "" {
+		ext = ".png"
+	}
+	// Derive MIME type from extension (browser Content-Type can be unreliable/doubled)
+	mimeByExt := map[string]string{
+		".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".png": "image/png",
+		".webp": "image/webp", ".gif": "image/gif", ".svg": "image/svg+xml",
+	}
+	contentType := mimeByExt[ext]
+	if contentType == "" {
+		contentType = "image/jpeg"
+	}
+
+	imgBytes, err := io.ReadAll(file)
+	if err != nil {
+		http.Error(w, "Failed to read image file", http.StatusInternalServerError)
+		return
+	}
+
+	uploadDir := "./uploads"
+	_ = os.MkdirAll(uploadDir, 0755)
+	filename := fmt.Sprintf("%s%s", uuid.New().String(), ext)
+	dstPath := filepath.Join(uploadDir, filename)
+
+	if err := os.WriteFile(dstPath, imgBytes, 0644); err != nil {
+		http.Error(w, "Failed to save image file", http.StatusInternalServerError)
+		return
+	}
+
+	iconURL := fmt.Sprintf("/uploads/%s", filename)
+
+	// Use client requested language first, then household's configured AI language, default to Hebrew
+	lang := strings.TrimSpace(r.FormValue("language"))
+	if lang == "" {
+		lang = strings.TrimSpace(r.URL.Query().Get("lang"))
+	}
+	if lang == "" {
+		group, err := a.service.GetChoreGroupByID(r.Context(), user.ChoreGroupID)
+		if err == nil && group.AILanguage != "" {
+			lang = group.AILanguage
+		}
+	}
+	if lang == "" {
+		lang = "he"
+	}
+
+	langMap := map[string]string{
+		"he": "Hebrew (עברית)",
+		"en": "English",
+		"es": "Spanish (Español)",
+		"fr": "French (Français)",
+		"de": "German (Deutsch)",
+	}
+	targetLang, ok := langMap[strings.ToLower(lang)]
+	if !ok || targetLang == "" {
+		targetLang = lang
+	}
+	if targetLang == "" {
+		targetLang = "Hebrew"
+	}
+
+	mode := strings.TrimSpace(strings.ToLower(r.FormValue("mode")))
+	if mode == "" {
+		mode = strings.TrimSpace(strings.ToLower(r.URL.Query().Get("mode")))
+	}
+	if mode == "" {
+		mode = "chore"
+	}
+
+	analysis, err := a.service.AnalyzeImageForChoreOrReward(r.Context(), imgBytes, contentType, iconURL, targetLang, mode)
+	if err != nil {
+		cleanMsg := sanitizeErrorString(err.Error())
+		log.Printf("[AI ERROR] Gemini vision analysis failed: %v", cleanMsg)
+		http.Error(w, cleanMsg, http.StatusBadRequest)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	_ = json.NewEncoder(w).Encode(analysis)
+}
+
+// updateChoreGroupAILanguage handles PUT /api/choregroups/{choregroupID}/ai/language
+func (a *API) updateChoreGroupAILanguage(w http.ResponseWriter, r *http.Request) {
+	user, ok := r.Context().Value(userKey).(model.User)
+	if !ok || user.Role != "admin" {
+		http.Error(w, "Forbidden: Only household admins can set AI content language", http.StatusForbidden)
+		return
+	}
+
+	var req struct {
+		Language string `json:"language"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "Invalid request body", http.StatusBadRequest)
+		return
+	}
+
+	lang := strings.TrimSpace(strings.ToLower(req.Language))
+	if lang == "" {
+		lang = "he"
+	}
+
+	if err := a.service.UpdateChoreGroupAILanguage(r.Context(), user.ChoreGroupID, lang); err != nil {
+		http.Error(w, fmt.Sprintf("Failed to update household AI language: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	_ = json.NewEncoder(w).Encode(map[string]string{
+		"message":     "Household AI language updated",
+		"ai_language": lang,
+	})
+}
+
+
 
 // signup godoc
 // @Summary      Sign up a new choregroup and admin user
@@ -301,29 +461,48 @@ func (a *API) addUser(w http.ResponseWriter, r *http.Request) {
 
 // createTask godoc
 // @Summary      Create a new task for a choregroup
-// @Description  Creates a new chore.
+// @Description  Creates a new chore. Admins can create any task. Kids can create tasks assigned to themselves (Snap Chore).
 // @Tags         Tasks
 // @Security     ApiKeyAuth
 // @Accept       json
 // @Produce      json
-// @Param        X-User-ID    header    string                   true  "Admin User ID"
+// @Param        X-User-ID    header    string                   true  "User ID"
 // @Param        choregroupID path      string                   true  "ChoreGroup ID"
 // @Param        task         body      model.CreateTaskRequest  true  "Task details"
 // @Success      201          {object}  model.Task
 // @Router       /choregroups/{choregroupID}/tasks [post]
 func (a *API) createTask(w http.ResponseWriter, r *http.Request) {
 	user := r.Context().Value(userKey).(model.User)
+
+	var kidCreatorID *uuid.UUID
 	if user.Role != "admin" {
-		http.Error(w, "Forbidden: only admins can create tasks", http.StatusForbidden)
-		return
+		// Kid creating a task (Snap Chore): enforce restrictions
+		hasMandatory, err := a.service.HasActiveMandatoryTasks(r.Context(), user.ChoreGroupID, user.ID)
+		if err != nil {
+			http.Error(w, "Failed to check mandatory tasks", http.StatusInternalServerError)
+			return
+		}
+		if hasMandatory {
+			http.Error(w, "Complete your mandatory chores first before creating new ones", http.StatusForbidden)
+			return
+		}
+		kidCreatorID = &user.ID
 	}
+
 	var req model.CreateTaskRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
+
+	// Kids can only create individual tasks assigned to themselves
+	if kidCreatorID != nil {
+		req.AssignedToUserID = kidCreatorID
+		req.Type = "individual"
+	}
+
 	onResolved := func() { a.broker.Broadcast(user.ChoreGroupID, "refresh") }
-	createdTask, err := a.service.CreateTask(r.Context(), user.ChoreGroupID, req, onResolved)
+	createdTask, err := a.service.CreateTask(r.Context(), user.ChoreGroupID, req, onResolved, kidCreatorID)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -896,7 +1075,7 @@ func corsMiddleware(next http.Handler) http.Handler {
 func secureHeadersMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Strict-Transport-Security", "max-age=63072000; includeSubDomains; preload")
-		w.Header().Set("Content-Security-Policy", "default-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; script-src 'self' 'unsafe-inline' 'unsafe-eval'; connect-src 'self' http://localhost:8080 ws://localhost:8080 http://localhost:5173 ws://localhost:5173 http://127.0.0.1:8080 ws://127.0.0.1:8080; img-src 'self' data: blob: http: https:;")
+		w.Header().Set("Content-Security-Policy", "default-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; script-src 'self' 'unsafe-inline' 'unsafe-eval'; connect-src 'self' * blob: data: http: https: ws: wss:; img-src 'self' data: blob: http: https:;")
 		w.Header().Set("X-Frame-Options", "DENY")
 		w.Header().Set("X-Content-Type-Options", "nosniff")
 		w.Header().Set("Referrer-Policy", "strict-origin-when-cross-origin")

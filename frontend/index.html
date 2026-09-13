@@ -10,10 +10,43 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Nunito:ital,wght@0,300..900;1,300..900&display=swap"
     rel="stylesheet">
-  <!-- Stylesheet -->
   <link rel="icon" type="image/svg+xml" href="icon.svg">
   <link rel="stylesheet" href="styles.css">
   <link rel="manifest" href="manifest.json">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <script>
+    (function() {
+      try {
+        var isStandalone = (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches) || window.navigator.standalone === true;
+        var savedTheme = localStorage.getItem('chorecraft_theme');
+        var prefersDark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
+        var theme = savedTheme || (prefersDark ? 'dark' : 'light');
+        var isDark = theme === 'dark';
+        document.documentElement.setAttribute('data-theme', theme);
+        
+        // In standalone PWA, native status bar is black, so keep icons white
+        var color = (isStandalone || isDark) ? '#000000' : '#ffffff';
+        var scheme = (isStandalone || isDark) ? 'dark' : 'light';
+        document.documentElement.style.colorScheme = scheme;
+
+        var metaScheme = document.createElement('meta');
+        metaScheme.name = 'color-scheme';
+        metaScheme.id = 'meta-color-scheme';
+        metaScheme.content = scheme;
+        document.head.appendChild(metaScheme);
+
+        var metaTheme = document.createElement('meta');
+        metaTheme.name = 'theme-color';
+        metaTheme.id = 'meta-theme-color';
+        metaTheme.content = color;
+        document.head.appendChild(metaTheme);
+
+        var appleMeta = document.querySelector('meta[name="apple-mobile-web-app-status-bar-style"]');
+        if (appleMeta) appleMeta.setAttribute('content', (isStandalone || isDark) ? 'black' : 'default');
+      } catch (e) {}
+    })();
+  </script>
 </head>
 
 <body>
@@ -25,9 +58,7 @@
         <img src="icon.svg" class="logo-icon" alt="ChoreCraft Icon" style="width: 32px; height: 32px;">
         <span class="logo-text">ChoreCraft</span>
       </div>
-      <div id="header-user-stats"
-        style="display: none; font-size: 1.15rem; font-weight: 800; color: var(--text-main); align-items: center; gap: 0.5rem; margin: 0 auto;">
-      </div>
+      <div id="header-user-stats" class="header-user-stats"></div>
       <!-- Right Header Actions (grouped to maintain layout alignment) -->
       <div class="right-header-group" style="display: flex; align-items: center; gap: 0.5rem;">
         <!-- Notification Dropdown -->
@@ -65,8 +96,10 @@
         </div>
         <!-- Navigation disabled for simplified view -->
         <div class="auth-status" id="auth-status-container">
-          <!-- Dynamically filled by JS -->
-          <button class="btn btn-primary" onclick="openAuthModal('parent-signup')">Create ChoreCraft household</button>
+          <div style="display: flex; align-items: center; gap: 0.5rem;">
+            <button class="btn btn-outline btn-sm" onclick="openAuthModal('login')">Log In</button>
+            <button class="btn btn-primary btn-sm" onclick="openAuthModal('signup')">Sign Up</button>
+          </div>
         </div>
       </div>
     </div>
@@ -89,8 +122,10 @@
             <p>Redeem your points for cool rewards like extra screen time or a new toy.</p>
           </div>
         </div>
-        <button class="btn btn-primary btn-lg" onclick="openAuthModal('parent-signup')">Create ChoreCraft household
-          🚀</button>
+        <div style="display: flex; gap: 0.75rem; justify-content: center; align-items: center; flex-wrap: wrap; margin-top: 1rem;">
+          <button class="btn btn-primary btn-lg" onclick="openAuthModal('parent-signup')">Create Household 🚀</button>
+          <button class="btn btn-outline btn-lg" onclick="openAuthModal('login')">Log In 🔑</button>
+        </div>
 
       </div>
     </section>
@@ -133,10 +168,15 @@
 
             <!-- MIDDLE: ACTIVE CHORES LIST -->
             <div class="parent-chores-area">
-              <div class="section-title-row" style="justify-content: center;">
+              <div class="section-title-row" style="display: flex; flex-direction: row; flex-wrap: nowrap; justify-content: center; align-items: center; gap: 0.5rem; width: 100%; margin-bottom: 1.5rem;">
                 <h3 style="display: none;">📋 Active Chores</h3>
-                <button class="btn btn-primary btn-sm" onclick="openAddChoreModal()"><span class="btn-plus-icon">+</span> Add Chore</button>
+                <button class="btn btn-primary btn-sm" onclick="openAddChoreModal()" style="flex: 1; max-width: 165px; padding: 0.55rem 0.75rem; font-size: 0.85rem; white-space: nowrap;"><span class="btn-plus-icon">+</span> Add Chore</button>
+                <button class="btn btn-primary btn-sm" onclick="triggerAiPhotoPicker('chore')" style="flex: 1; max-width: 165px; padding: 0.55rem 0.75rem; font-size: 0.85rem; background: linear-gradient(135deg, #8b5cf6, #ec4899); color: white; border: none; font-weight: 800; box-shadow: 0 2px 10px rgba(139,92,246,0.35); display: inline-flex; align-items: center; justify-content: center; gap: 0.35rem; white-space: nowrap;"><span class="btn-plus-icon">📸</span> Snap Chore</button>
               </div>
+
+
+
+
               <div class="chores-grid" id="parent-chores-list">
                 <!-- Dynamically populated with Edit/Delete capabilities -->
               </div>
@@ -179,9 +219,14 @@
         <div id="parent-rewards-content" class="tab-content" style="display: none;">
           <div class="parent-rewards-wrapper">
             <div class="rewards-dashboard-header"
-              style="display: flex; justify-content: center; padding-bottom: 1rem; border-bottom: none;">
-              <button class="btn btn-primary btn-sm" onclick="openAddRewardModal()"><span class="btn-plus-icon">+</span> Add Reward</button>
+              style="display: flex; flex-direction: row; flex-wrap: nowrap; justify-content: center; align-items: center; gap: 0.5rem; width: 100%; padding-bottom: 1rem; border-bottom: none;">
+              <button class="btn btn-primary btn-sm" onclick="openAddRewardModal()" style="flex: 1; max-width: 165px; padding: 0.55rem 0.75rem; font-size: 0.85rem; white-space: nowrap;"><span class="btn-plus-icon">+</span> Add Reward</button>
+              <button class="btn btn-primary btn-sm" onclick="triggerAiPhotoPicker('reward')" style="flex: 1; max-width: 165px; padding: 0.55rem 0.75rem; font-size: 0.85rem; background: linear-gradient(135deg, #8b5cf6, #ec4899); color: white; border: none; font-weight: 800; box-shadow: 0 2px 10px rgba(139,92,246,0.35); display: inline-flex; align-items: center; justify-content: center; gap: 0.35rem; white-space: nowrap;"><span class="btn-plus-icon">📸</span> Snap Reward</button>
             </div>
+
+
+
+
 
             <div class="parent-rewards-layout">
               <!-- Top: Fulfillment section first -->
@@ -240,6 +285,9 @@
           <div class="kid-workspace-grid" style="grid-template-columns: 1fr;">
             <!-- CHORES LIST -->
             <div class="kid-chores-area">
+              <div id="kid-snap-chore-container" class="section-title-row" style="display: flex; flex-direction: row; flex-wrap: nowrap; justify-content: center; align-items: center; gap: 0.5rem; width: 100%; margin-bottom: 1.5rem;">
+                <button id="kid-snap-chore-btn" class="btn btn-primary btn-sm" onclick="triggerAiPhotoPicker('chore')" style="flex: 1; max-width: 200px; padding: 0.55rem 0.75rem; font-size: 0.85rem; background: linear-gradient(135deg, #8b5cf6, #ec4899); color: white; border: none; font-weight: 800; box-shadow: 0 2px 10px rgba(139,92,246,0.35); display: inline-flex; align-items: center; justify-content: center; gap: 0.35rem; white-space: nowrap;"><span class="btn-plus-icon">📸</span> Snap Chore</button>
+              </div>
               <h3 style="display: none;">🎯 My Chores</h3>
               <div class="chores-grid" id="kid-chores-list">
                 <!-- Dynamically populated with large action buttons -->
@@ -260,6 +308,11 @@
         <!-- Rewards Tab Content -->
         <div id="kid-rewards-content" class="tab-content" style="display: none;">
           <div class="kid-rewards-layout">
+
+            <!-- SNAP REWARD BUTTON FOR KID -->
+            <div id="kid-snap-reward-container" class="section-title-row" style="display: flex; flex-direction: row; flex-wrap: nowrap; justify-content: center; align-items: center; gap: 0.5rem; width: 100%; margin-bottom: 1.5rem;">
+              <button id="kid-snap-reward-btn" class="btn btn-primary btn-sm" onclick="triggerAiPhotoPicker('reward')" style="flex: 1; max-width: 200px; padding: 0.55rem 0.75rem; font-size: 0.85rem; background: linear-gradient(135deg, #8b5cf6, #ec4899); color: white; border: none; font-weight: 800; box-shadow: 0 2px 10px rgba(139,92,246,0.35); display: inline-flex; align-items: center; justify-content: center; gap: 0.35rem; white-space: nowrap;"><span class="btn-plus-icon">📸</span> Snap Reward</button>
+            </div>
 
             <!-- TOP SECTION: Stats + Pending (shown first) -->
             <div class="kid-rewards-top-bar">
@@ -387,8 +440,8 @@
         <div class="form-group">
           <label for="chore-type-input">Chore Type</label>
           <select id="chore-type-input" onchange="toggleChoreType(this.value)" required>
-            <option value="individual" selected>Individual Task (Assigned to one kid)</option>
-            <option value="cooperative">Cooperative Task (Open to all kids)</option>
+            <option value="individual" selected>Individual Task (Assigned to one user)</option>
+            <option value="cooperative">Cooperative Task (Open to all users)</option>
           </select>
         </div>
 
@@ -464,7 +517,7 @@
           <input type="file" id="chore-icon-file-input" accept="image/*" onchange="handleIconUpload(event, 'chore')" style="display: none;">
           <input type="hidden" id="chore-icon-url-input">
           <div id="chore-icon-preview-container" class="icon-preview-box" style="display: none; align-items: center; gap: 0.75rem; margin-top: 0.5rem; padding: 0.5rem; border-radius: var(--radius-lg); background: var(--bg-hover);">
-            <img id="chore-icon-preview-img" src="" alt="Icon Preview" style="width: 48px; height: 48px; object-fit: cover; object-position: center; border-radius: 8px; border: 2px solid var(--primary-color);">
+            <img id="chore-icon-preview-img" src="" alt="Icon Preview" style="width: 48px; height: 48px; object-fit: cover; object-position: center; border-radius: 8px; border: 2px solid var(--primary-color); cursor: pointer;" onclick="openImageModal(this.src)" title="Click to enlarge">
             <button type="button" class="btn btn-outline btn-sm" onclick="clearIconUpload('chore')">Remove Image</button>
           </div>
         </div>
@@ -529,7 +582,7 @@
           <input type="file" id="reward-icon-file-input" accept="image/*" onchange="handleIconUpload(event, 'reward')" style="display: none;">
           <input type="hidden" id="reward-icon-url-input">
           <div id="reward-icon-preview-container" class="icon-preview-box" style="display: none; align-items: center; gap: 0.75rem; margin-top: 0.5rem; padding: 0.5rem; border-radius: var(--radius-lg); background: var(--bg-hover);">
-            <img id="reward-icon-preview-img" src="" alt="Icon Preview" style="width: 48px; height: 48px; object-fit: cover; object-position: center; border-radius: 8px; border: 2px solid var(--primary-color);">
+            <img id="reward-icon-preview-img" src="" alt="Icon Preview" style="width: 48px; height: 48px; object-fit: cover; object-position: center; border-radius: 8px; border: 2px solid var(--primary-color); cursor: pointer;" onclick="openImageModal(this.src)" title="Click to enlarge">
             <button type="button" class="btn btn-outline btn-sm" onclick="clearIconUpload('reward')">Remove Image</button>
           </div>
         </div>
@@ -557,8 +610,8 @@
         <div class="form-group">
           <label for="new-member-role">Account Role</label>
           <select id="new-member-role" required>
-            <option value="user" selected>Kid (User - chore execution)</option>
-            <option value="admin">Parent (Admin - control panel)</option>
+            <option value="user" selected>User (Standard Member)</option>
+            <option value="admin">Admin (Manager)</option>
           </select>
         </div>
         <button type="submit" class="btn btn-primary btn-block">Create Profile 🚀</button>
@@ -607,7 +660,7 @@
   </div>
 
   <!-- CONFETTI / ALERTS OVERLAYS -->
-  <div class="notification-toast" id="toast-message">Task submitted! Waiting for Parent approval.</div>
+  <div class="notification-toast" id="toast-message">Task submitted! Waiting for Admin approval.</div>
 
   <!-- SCRIPTS -->
   <script type="module" src="app.js"></script>
@@ -746,13 +799,104 @@
         </div>
       </div>
 
-      <div style="display: flex; gap: 0.75rem; justify-content: center;">
+      <div style="display: flex; gap: 0.75rem; justify-content: center; flex-wrap: wrap;">
         <button type="button" class="btn btn-outline" onclick="closeCameraModal()" style="flex: 1;">Cancel</button>
-        <button type="button" class="btn btn-primary" onclick="snapCameraPhoto()" style="flex: 1; font-weight: bold;">📸 Snap Photo</button>
+        <button type="button" class="btn btn-outline" onclick="openAiFileFallback()" style="flex: 1; font-size: 0.8rem;">📁 Choose File</button>
+        <button type="button" class="btn btn-primary" onclick="snapCameraPhoto()" style="flex: 1; font-weight: bold; min-width: 120px;">📸 Snap Photo</button>
       </div>
+    </div>
+  </div>
+
+
+  <!-- HIDDEN AI IMAGE FILE INPUT -->
+  <input type="file" id="ai-image-file-input" accept="image/*" style="display: none;" onchange="handleAiFileSelected(event)" />
+
+  <!-- AI CREATE CHORE / REWARD MODAL -->
+  <div class="modal-backdrop" id="ai-create-modal" style="z-index: 1080;">
+    <div class="modal-card" style="max-width: 500px; padding: 1.5rem;">
+      <button class="modal-close-btn" onclick="closeAiCreateModal()">×</button>
+      <div style="display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.25rem;">
+        <span style="font-size: 1.5rem;">✨</span>
+        <h3 style="margin: 0;" id="ai-modal-header-title">AI Created Item</h3>
+      </div>
+      <p style="font-size: 0.85rem; color: var(--text-muted); margin-bottom: 1rem;">
+        Gemini Vision analyzed your image, inferred title & description, and calculated Fibonacci coins ($2 = 1 coin)!
+      </p>
+
+      <!-- Image Preview -->
+      <div style="text-align: center; margin-bottom: 1rem;">
+        <div style="width: 100px; height: 100px; margin: 0 auto; border-radius: var(--radius-lg); overflow: hidden; border: 2px solid var(--border-color); background: #0f172a; box-shadow: var(--shadow-sm);">
+          <img id="ai-modal-image-preview" src="" alt="AI Item Preview" style="width: 100%; height: 100%; object-fit: cover; object-position: center; cursor: pointer;" onclick="openImageModal(this.src)" />
+        </div>
+        <button type="button" class="btn btn-outline btn-xs" onclick="triggerAiPhotoPicker()" style="margin-top: 0.5rem; font-size: 0.75rem;">📸 Change Photo</button>
+      </div>
+
+      <form id="ai-create-form" onsubmit="handleAiCreateSubmit(event)">
+        <!-- Mode Switcher: Chore vs Reward -->
+        <div class="form-group" style="margin-bottom: 1rem;">
+          <label class="form-label" style="font-weight: 700;">Item Type</label>
+          <div style="display: flex; gap: 0.5rem;">
+            <button type="button" id="ai-type-chore-btn" class="btn btn-primary style-toggle-btn active" onclick="setAiModalType('chore')" style="flex: 1; font-weight: 700;">📋 Chore</button>
+            <button type="button" id="ai-type-reward-btn" class="btn btn-outline style-toggle-btn" onclick="setAiModalType('reward')" style="flex: 1; font-weight: 700;">🎁 Reward</button>
+          </div>
+        </div>
+
+        <!-- Title -->
+        <div class="form-group" style="margin-bottom: 1rem;">
+          <label class="form-label" for="ai-input-title">Title</label>
+          <input type="text" id="ai-input-title" class="form-input" required placeholder="e.g. 🧹 Wash Dishes" />
+        </div>
+
+        <!-- Description -->
+        <div class="form-group" style="margin-bottom: 1rem;">
+          <label class="form-label" for="ai-input-description">Description</label>
+          <textarea id="ai-input-description" class="form-input" rows="2" placeholder="Details about this item..."></textarea>
+        </div>
+
+        <!-- Points / Coins + Fibonacci Valuation Badge -->
+        <div class="form-group" style="margin-bottom: 1rem;">
+          <label class="form-label" for="ai-input-points" id="ai-points-label">Coin Reward</label>
+          <div style="display: flex; gap: 0.5rem; align-items: center;">
+            <input type="number" id="ai-input-points" class="form-input" min="1" required style="max-width: 120px; font-weight: 800; font-size: 1.1rem; text-align: center;" oninput="updateAiValuationHint()" />
+            <div id="ai-valuation-badge" style="flex: 1; background: rgba(245, 158, 11, 0.08); border-radius: var(--radius-md); padding: 0.5rem 0.75rem; font-size: 0.8rem; color: var(--text-main); border: 1px solid rgba(245, 158, 11, 0.3);">
+              <span style="font-weight: 800; color: #f59e0b;">🪙 Fibonacci Scale</span>
+              <div id="ai-valuation-reasoning" style="font-size: 0.75rem; color: var(--text-muted); font-style: italic;">$2 est. value = 1 coin</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Category Dropdown -->
+        <div class="form-group" style="margin-bottom: 1.25rem;">
+          <label class="form-label" for="ai-input-category" id="ai-category-label">Category</label>
+          <select id="ai-input-category" class="form-input">
+            <!-- Dynamically populated depending on Chore or Reward -->
+          </select>
+        </div>
+
+        <!-- Hidden input for file URL -->
+        <input type="hidden" id="ai-input-icon-url" value="" />
+
+        <div style="display: flex; gap: 0.75rem; justify-content: flex-end;">
+          <button type="button" class="btn btn-outline" onclick="closeAiCreateModal()">Cancel</button>
+          <button type="submit" class="btn btn-primary" style="font-weight: 800;">✨ Confirm & Create</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Image Zoom Lightbox Modal -->
+  <div id="image-zoom-modal" class="modal-backdrop" onclick="closeImageModal()" style="cursor: pointer; z-index: 999999;">
+    <div class="image-zoom-container" onclick="closeImageModal()">
+      <div id="image-zoom-modal-header" class="image-zoom-header">
+        <div id="image-zoom-modal-spacer" class="image-zoom-spacer"></div>
+        <h2 id="image-zoom-modal-title" class="image-zoom-title"></h2>
+        <button type="button" class="image-zoom-close-btn" onclick="closeImageModal()" aria-label="Close">✕</button>
+      </div>
+      <img id="image-zoom-modal-img" src="" alt="Enlarged Photo" />
+      <span style="color: #ffffff; font-size: 0.85rem; font-weight: 700; background: rgba(0,0,0,0.7); padding: 0.4rem 1.25rem; border-radius: 20px; border: 1px solid rgba(255,255,255,0.25); backdrop-filter: blur(4px);">✨ Tap anywhere to close</span>
     </div>
   </div>
 
 </body>
 
-</html>
+</html>

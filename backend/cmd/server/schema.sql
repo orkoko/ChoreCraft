@@ -97,3 +97,6 @@ ALTER TABLE tasks ADD COLUMN IF NOT EXISTS parent_task_id UUID REFERENCES tasks(
 ALTER TABLE tasks ADD COLUMN IF NOT EXISTS icon_url TEXT;
 ALTER TABLE rewards ADD COLUMN IF NOT EXISTS icon_url TEXT;
 
+-- Migration to support household-level AI generated content language
+ALTER TABLE choregroups ADD COLUMN IF NOT EXISTS ai_language VARCHAR(10) NOT NULL DEFAULT 'he';
+

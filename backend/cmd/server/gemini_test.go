@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -66,3 +67,80 @@ func TestGeminiIntegration(t *testing.T) {
 		t.Errorf("Expected cached title to match Gemini output %q, got: %q", newTitle, cachedTitle)
 	}
 }
+
+func TestSnapToFibonacci(t *testing.T) {
+	tests := []struct {
+		input    int
+		expected int
+	}{
+		{0, 1},
+		{1, 1},
+		{2, 2},
+		{4, 3},
+		{6, 5},
+		{10, 8},
+		{12, 13},
+		{25, 21},
+		{40, 34},
+	}
+
+	for _, tc := range tests {
+		got := service.SnapToFibonacci(tc.input)
+		if got != tc.expected {
+			t.Errorf("SnapToFibonacci(%d) = %d; want %d", tc.input, got, tc.expected)
+		}
+	}
+}
+
+func TestCalculateChoreCoins(t *testing.T) {
+	tests := []struct {
+		name           string
+		usd            float64
+		suggestedCoins int
+		expected       int
+	}{
+		{"micro task <= $2", 1.5, 0, 1},
+		{"quick task table wipe $4", 4.0, 0, 2},
+		{"small chore full table clear & clean $7", 7.0, 0, 3},
+		{"moderate chore mopping $15", 15.0, 0, 5},
+		{"substantial chore $25", 25.0, 0, 8},
+		{"large chore $45", 45.0, 0, 13},
+		{"deep clean $70", 70.0, 0, 21},
+		{"gemini suggested 2 coins", 4.0, 2, 2},
+		{"gemini suggested 3 coins", 6.0, 3, 3},
+		{"gemini suggested 4 snaps to 3", 8.0, 4, 3},
+	}
+
+	for _, tc := range tests {
+		got := service.CalculateChoreCoins(tc.usd, tc.suggestedCoins)
+		if got != tc.expected {
+			t.Errorf("CalculateChoreCoins(%f, %d) [%s] = %d; want %d", tc.usd, tc.suggestedCoins, tc.name, got, tc.expected)
+		}
+	}
+}
+
+func TestDeleteUploadedPhoto(t *testing.T) {
+	_ = os.MkdirAll("./uploads", 0755)
+	dummyFile := filepath.Join("./uploads", "test_delete_sample.jpg")
+	if err := os.WriteFile(dummyFile, []byte("fake image content"), 0644); err != nil {
+		t.Fatalf("failed to create dummy file: %v", err)
+	}
+
+	// Verify file exists
+	if _, err := os.Stat(dummyFile); os.IsNotExist(err) {
+		t.Fatalf("dummy file should exist before delete")
+	}
+
+	// Test deletion with /uploads/ path
+	service.DeleteUploadedPhoto("/uploads/test_delete_sample.jpg")
+
+	// Verify file is gone
+	if _, err := os.Stat(dummyFile); !os.IsNotExist(err) {
+		t.Errorf("expected dummy file to be deleted, but still exists")
+	}
+
+	// Test that non-local or empty URLs do not error/panic
+	service.DeleteUploadedPhoto("")
+	service.DeleteUploadedPhoto("https://external.domain.com/photo.jpg")
+}
+

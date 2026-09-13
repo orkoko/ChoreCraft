@@ -47,14 +47,122 @@ function resolveIconUrl(url) {
 }
 
 // Render icon element (custom image URL if provided, otherwise fallback emoji)
-function renderItemIcon(item, fallbackEmoji) {
+// Render icon element (custom image URL if provided, otherwise fallback emoji)
+function renderItemIcon(item, fallbackEmoji, title) {
   if (item && item.icon_url) {
     const src = resolveIconUrl(item.icon_url);
     const safeEmoji = escapeHTML(fallbackEmoji || "📋");
-    return `<img src="${escapeHTML(src)}" class="card-icon-img" alt="icon" onerror="this.onerror=null; this.parentElement.innerHTML='${safeEmoji}';" style="width: 100%; height: 100%; object-fit: cover; object-position: center; border-radius: 6px;">`;
+    const safeTitle = escapeHTML(title || item.title || item.name || "");
+    const safeSrc = escapeHTML(src);
+    return `<img src="${safeSrc}" class="card-icon-img zoomable-photo" alt="photo" onerror="this.onerror=null; this.parentElement.innerHTML='${safeEmoji}';" style="cursor: pointer;" onclick="event.stopPropagation(); openImageModal('${safeSrc}', '${safeTitle}');" title="Click to enlarge photo">`;
   }
   return fallbackEmoji || "📋";
 }
+
+let imageModalOpenTimestamp = 0;
+
+function openImageModal(src, title) {
+  // Only enlarge actual photos, never emoji icons
+  if (!src || typeof src !== "string" || !src.trim()) return;
+
+  const modal = document.getElementById("image-zoom-modal");
+  const img = document.getElementById("image-zoom-modal-img");
+  const titleEl = document.getElementById("image-zoom-modal-title");
+  const spacerEl = document.getElementById("image-zoom-modal-spacer");
+
+  if (!modal) return;
+
+  if (titleEl) {
+    if (title && title.trim()) {
+      titleEl.textContent = title.trim();
+      titleEl.style.display = "block";
+      if (spacerEl) spacerEl.style.display = "block";
+    } else {
+      titleEl.style.display = "none";
+      if (spacerEl) spacerEl.style.display = "none";
+    }
+  }
+
+  if (img) {
+    img.src = src;
+    img.style.display = "block";
+  }
+
+  imageModalOpenTimestamp = Date.now();
+  modal.classList.add("active");
+}
+
+function closeImageModal() {
+  if (Date.now() - imageModalOpenTimestamp < 150) return;
+  const modal = document.getElementById("image-zoom-modal");
+  if (modal) {
+    modal.classList.remove("active");
+  }
+}
+
+// Prevent text and drag selection on chore cards
+document.addEventListener("selectstart", function(e) {
+  if (e.target.closest(".chore-card, .reward-card, .pending-item, .submission-item")) {
+    e.preventDefault();
+  }
+});
+
+document.addEventListener("mousedown", function(e) {
+  if (e.target.closest(".chore-card, .reward-card, .pending-item, .submission-item")) {
+    if (!e.target.closest("button, input, select, textarea, a")) {
+      e.preventDefault();
+    }
+  }
+});
+
+function handleChoreTap(e) {
+  // 1. If modal is active, any click/tap anywhere on screen closes it (if opened > 150ms ago)
+  const modal = document.getElementById("image-zoom-modal");
+  if (modal && modal.classList.contains("active")) {
+    if (Date.now() - imageModalOpenTimestamp > 150) {
+      closeImageModal();
+      e.stopPropagation();
+      e.preventDefault();
+    }
+    return;
+  }
+
+  // 2. Ignore clicks on action buttons or controls (e.g. Approve, Reject, Edit, Delete, Submit buttons)
+  const isActionButton = e.target.closest("button, input, select, textarea, a, .card-controls, .sub-actions, .btn-action-submit");
+  if (isActionButton) {
+    return; // Allow button clicks to process normally
+  }
+
+  // 3. Check if clicked item or container has a real photo URL (only photos, never emojis)
+  const photoContainer = e.target.closest("[data-photo-url]");
+  if (photoContainer && photoContainer.dataset.photoUrl && photoContainer.dataset.photoUrl.trim()) {
+    const src = photoContainer.dataset.photoUrl.trim();
+    const title = photoContainer.dataset.choreTitle || "";
+    e.stopPropagation();
+    e.preventDefault();
+    openImageModal(src, title);
+    return;
+  }
+
+  // 4. Check if clicked target is a zoomable photo image itself
+  if (e.target && e.target.tagName === "IMG" && e.target.classList.contains("zoomable-photo")) {
+    const src = e.target.getAttribute("src");
+    if (src) {
+      e.stopPropagation();
+      e.preventDefault();
+      openImageModal(src, e.target.getAttribute("alt") || "");
+      return;
+    }
+  }
+}
+
+// Global click and key listeners for desktop & mobile
+document.addEventListener("click", handleChoreTap, true);
+document.addEventListener("keydown", function(e) {
+  if (e.key === "Escape") {
+    closeImageModal();
+  }
+});
 
 // Handle icon file selection and upload
 async function handleIconUpload(event, type) {
@@ -112,41 +220,51 @@ function clearIconUpload(type) {
 // Camera photo capture logic
 let activeCameraStream = null;
 let cameraTargetType = null;
+let currentCameraFacingMode = "environment";
 
-async function openCameraModal(type) {
-  cameraTargetType = type;
-  const modal = document.getElementById("camera-modal");
+async function startCameraStream(facingMode = "environment") {
   const video = document.getElementById("camera-video");
   const errorMsg = document.getElementById("camera-error-msg");
+
+  if (activeCameraStream) {
+    activeCameraStream.getTracks().forEach(track => track.stop());
+    activeCameraStream = null;
+  }
 
   if (errorMsg) errorMsg.style.display = "none";
   if (video) video.style.display = "block";
 
-  try {
-    const constraints = {
-      video: {
-        facingMode: { ideal: "environment" },
-        width: { ideal: 1280 },
-        height: { ideal: 720 }
-      }
-    };
-    activeCameraStream = await navigator.mediaDevices.getUserMedia(constraints);
-    if (video) {
-      video.srcObject = activeCameraStream;
-    }
-  } catch (err) {
-    console.error("Camera access error:", err);
+  currentCameraFacingMode = facingMode;
+
+  const facingConstraints = [
+    { video: { facingMode: { exact: facingMode }, width: { ideal: 1280 }, height: { ideal: 720 } } },
+    { video: { facingMode: { ideal: facingMode }, width: { ideal: 1280 }, height: { ideal: 720 } } },
+    { video: { facingMode: facingMode } },
+    { video: true }
+  ];
+
+  for (const constraints of facingConstraints) {
     try {
-      activeCameraStream = await navigator.mediaDevices.getUserMedia({ video: true });
+      activeCameraStream = await navigator.mediaDevices.getUserMedia(constraints);
       if (video) {
         video.srcObject = activeCameraStream;
       }
-    } catch (fallbackErr) {
-      console.error("Fallback camera access error:", fallbackErr);
-      if (errorMsg) errorMsg.style.display = "flex";
-      if (video) video.style.display = "none";
+      return true;
+    } catch (err) {
+      console.warn("Camera constraint failed, trying fallback:", err);
     }
   }
+
+  if (errorMsg) errorMsg.style.display = "flex";
+  if (video) video.style.display = "none";
+  return false;
+}
+
+async function openCameraModal(type) {
+  cameraTargetType = type;
+  const modal = document.getElementById("camera-modal");
+
+  await startCameraStream("environment");
 
   if (modal) modal.classList.add("active");
 }
@@ -169,20 +287,39 @@ async function snapCameraPhoto() {
   if (!video || !canvas || !cameraTargetType) return;
 
   const context = canvas.getContext("2d");
-  const width = video.videoWidth || 640;
-  const height = video.videoHeight || 480;
+  const srcWidth = video.videoWidth || 640;
+  const srcHeight = video.videoHeight || 480;
 
-  canvas.width = width;
-  canvas.height = height;
-  context.drawImage(video, 0, 0, width, height);
+  // Resize to max 512px on longest side to reduce AI token usage
+  const MAX_DIM = 512;
+  let destWidth = srcWidth;
+  let destHeight = srcHeight;
+  if (srcWidth > MAX_DIM || srcHeight > MAX_DIM) {
+    const scale = MAX_DIM / Math.max(srcWidth, srcHeight);
+    destWidth = Math.round(srcWidth * scale);
+    destHeight = Math.round(srcHeight * scale);
+  }
 
+  canvas.width = destWidth;
+  canvas.height = destHeight;
+  context.drawImage(video, 0, 0, destWidth, destHeight);
+
+  // Export as JPEG at 70% quality (much smaller than PNG, fewer AI tokens)
   canvas.toBlob(async (blob) => {
     if (!blob) {
       alert("Failed to capture photo frame");
       return;
     }
 
-    const file = new File([blob], `photo_${Date.now()}.png`, { type: "image/png" });
+    const file = new File([blob], `photo_${Date.now()}.jpg`, { type: "image/jpeg" });
+
+    if (cameraTargetType && cameraTargetType.startsWith("ai-")) {
+      const mode = cameraTargetType.replace("ai-", "") || "chore";
+      closeCameraModal();
+      await processAiImageFile(file, mode);
+      return;
+    }
+
     const formData = new FormData();
     formData.append("image", file);
 
@@ -217,8 +354,9 @@ async function snapCameraPhoto() {
     } finally {
       closeCameraModal();
     }
-  }, "image/png");
+  }, "image/jpeg", 0.70);
 }
+
 
 // Toggle Assignee select availability based on Task Type
 function toggleChoreType(type) {
@@ -298,9 +436,101 @@ function setPointsSelectValue(val) {
 }
 
 /* ==========================================
+   THEME MANAGEMENT (DARK / LIGHT MODE)
+   ========================================== */
+function initTheme() {
+  const savedTheme = localStorage.getItem('chorecraft_theme');
+  const prefersDark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
+  const theme = savedTheme || (prefersDark ? 'dark' : 'light');
+  setTheme(theme, false);
+
+  if (window.matchMedia) {
+    window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', (e) => {
+      if (!localStorage.getItem('chorecraft_theme')) {
+        setTheme(e.matches ? 'dark' : 'light', false);
+      }
+    });
+  }
+}
+
+function setTheme(theme, save = true) {
+  document.documentElement.setAttribute('data-theme', theme);
+  if (save) {
+    localStorage.setItem('chorecraft_theme', theme);
+  }
+  updateThemeControls(theme);
+
+  // Detect if running as installed Home Screen PWA
+  const isStandalone = (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches) || window.navigator.standalone === true;
+
+  // In standalone PWA, native status bar is black, so keep icons white
+  const isDark = theme === 'dark';
+  const color = (isStandalone || isDark) ? '#000000' : '#ffffff';
+  const scheme = (isStandalone || isDark) ? 'dark' : 'light';
+
+  document.documentElement.style.colorScheme = isDark ? 'dark' : 'light';
+
+  // Remove and recreate meta tags to guarantee Chrome Android picks up dynamic changes
+  document.querySelectorAll('meta[name="theme-color"]').forEach(el => el.remove());
+  document.querySelectorAll('meta[name="color-scheme"]').forEach(el => el.remove());
+
+  const schemeMeta = document.createElement('meta');
+  schemeMeta.name = 'color-scheme';
+  schemeMeta.id = 'meta-color-scheme';
+  schemeMeta.content = scheme;
+  document.head.appendChild(schemeMeta);
+
+  const themeMeta = document.createElement('meta');
+  themeMeta.name = 'theme-color';
+  themeMeta.id = 'meta-theme-color';
+  themeMeta.content = color;
+  document.head.appendChild(themeMeta);
+
+  // Also update iOS status bar style
+  const appleMeta = document.querySelector('meta[name="apple-mobile-web-app-status-bar-style"]');
+  if (appleMeta) {
+    appleMeta.setAttribute('content', (isStandalone || isDark) ? 'black' : 'default');
+  }
+}
+
+function toggleTheme() {
+  const currentTheme = document.documentElement.getAttribute('data-theme') || 'light';
+  const newTheme = currentTheme === 'dark' ? 'light' : 'dark';
+  setTheme(newTheme, true);
+}
+
+function handleThemeToggleClick(event) {
+  if (event) {
+    event.stopPropagation();
+  }
+  toggleTheme();
+}
+
+function handleThemeSwitchChange(event) {
+  if (event) {
+    event.stopPropagation();
+  }
+  const isDark = event.target.checked;
+  setTheme(isDark ? 'dark' : 'light', true);
+}
+
+function updateThemeControls(theme) {
+  const isDark = theme === 'dark';
+  const checkbox = document.getElementById('theme-switch-checkbox');
+  if (checkbox) {
+    checkbox.checked = isDark;
+  }
+  const icon = document.getElementById('dropdown-theme-icon');
+  if (icon) {
+    icon.textContent = isDark ? '🌙' : '☀️';
+  }
+}
+
+/* ==========================================
    APP INITIALIZATION & ROUTING
    ========================================== */
 document.addEventListener("DOMContentLoaded", async () => {
+  initTheme();
   // Check for delegated login token in query params
   const urlParams = new URLSearchParams(window.location.search);
   const delegatedToken = urlParams.get("login_token");
@@ -582,7 +812,7 @@ async function handleLogin(e) {
       username: res.username || username,
       role: res.role,
       choregroup_id: res.choregroup_id,
-      choregroup_name: res.role === "admin" ? "My Household" : "Kid Space"
+      choregroup_name: res.role === "admin" ? "My Household" : "User Space"
     });
     closeModal("auth-modal");
     showToast(`Welcome back ${res.username || username}!`);
@@ -692,7 +922,19 @@ function updateHeaderAuthBtn() {
     const isKid = currentSession.role === "user";
     if (isKid) {
       if (headerStats) {
-        headerStats.innerHTML = `(<strong>${currentSession.points || 0}</strong> <span class="points-coin">🐱</span> | <strong>${currentSession.cooperative_points || 0}</strong> <span class="points-coin coop-theme">🐱🐱</span>)`;
+        headerStats.innerHTML = `
+          <div class="user-coins-pill" title="My Coins &amp; Family Cooperative Coins">
+            <div class="coin-chip individual" title="Personal Coins: ${currentSession.points || 0}">
+              <span class="points-coin">🐱</span>
+              <span class="coin-amount">${currentSession.points || 0}</span>
+            </div>
+            <div class="coin-pill-divider"></div>
+            <div class="coin-chip cooperative" title="Cooperative Coins: ${currentSession.cooperative_points || 0}">
+              <span class="points-coin coop-theme">🐱🐱</span>
+              <span class="coin-amount">${currentSession.cooperative_points || 0}</span>
+            </div>
+          </div>
+        `;
         headerStats.style.display = "flex";
       }
     } else {
@@ -711,8 +953,32 @@ function updateHeaderAuthBtn() {
         <div class="user-dropdown-menu" id="user-dropdown-menu">
           <div class="user-dropdown-info">
             <strong>${escapeHTML(currentSession.username)}</strong>
-            ${currentSession.role === "admin" ? '<span class="user-role-badge">Parent</span>' : ''}
+            <span class="user-role-badge ${currentSession.role === 'admin' ? 'user-role-admin' : 'user-role-standard'}">${currentSession.role === "admin" ? 'Admin' : 'User'}</span>
           </div>
+          <div class="dropdown-theme-row" onclick="handleThemeToggleClick(event)" title="Toggle Dark Mode">
+            <div class="dropdown-theme-label">
+              <span id="dropdown-theme-icon">${(document.documentElement.getAttribute('data-theme') === 'dark') ? '🌙' : '☀️'}</span>
+              <span>Dark Mode</span>
+            </div>
+            <label class="switch-toggle" onclick="event.stopPropagation();" style="margin: 0;">
+              <input type="checkbox" id="theme-switch-checkbox" ${(document.documentElement.getAttribute('data-theme') === 'dark') ? 'checked' : ''} onchange="handleThemeSwitchChange(event)" />
+              <span class="switch-slider"></span>
+            </label>
+          </div>
+          ${currentSession.role === 'admin' ? `
+          <div class="user-dropdown-info" style="border-top: 1px solid var(--border-color, #e5e7eb); padding-top: 8px; margin-top: 0;">
+            <label for="ai-language-select" style="font-size: 0.8rem; color: var(--text-muted); display: block; margin-bottom: 4px; font-weight: 500;">
+              🌐 Household AI Language (Admin)
+            </label>
+            <select id="ai-language-select" onchange="handleAiLanguageChange(event)" style="width: 100%; padding: 6px 10px; font-size: 0.85rem; border-radius: 6px; border: 1px solid var(--border-color); background-color: var(--input-bg); color: var(--text-main);">
+              <option value="he" ${getAiLanguage() === 'he' ? 'selected' : ''}>Hebrew (עברית)</option>
+              <option value="en" ${getAiLanguage() === 'en' ? 'selected' : ''}>English</option>
+              <option value="es" ${getAiLanguage() === 'es' ? 'selected' : ''}>Spanish (Español)</option>
+              <option value="fr" ${getAiLanguage() === 'fr' ? 'selected' : ''}>French (Français)</option>
+              <option value="de" ${getAiLanguage() === 'de' ? 'selected' : ''}>German (Deutsch)</option>
+            </select>
+          </div>
+          ` : ''}
           <button class="dropdown-action-btn" onclick="openChangePasswordModal('${currentSession.id || currentSession.user_id}', '${escapeHTML(currentSession.username)}')">
             <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-right: 8px; stroke: var(--primary-blue);">
               <rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect>
@@ -739,8 +1005,10 @@ function updateHeaderAuthBtn() {
       headerStats.style.display = "none";
     }
     container.innerHTML = `
-      <button class="btn btn-outline btn-sm" onclick="openAuthModal('login')">Log In</button>
-      <button class="btn btn-primary btn-sm" onclick="openAuthModal('signup')">Sign Up</button>
+      <div style="display: flex; align-items: center; gap: 0.5rem;">
+        <button class="btn btn-outline btn-sm" onclick="openAuthModal('login')">Log In</button>
+        <button class="btn btn-primary btn-sm" onclick="openAuthModal('signup')">Sign Up</button>
+      </div>
     `;
   }
 }
@@ -830,7 +1098,6 @@ async function renderParentDashboard() {
       let displayTitle = task.type === "cooperative" ? `${title} (👥)` : title;
       if (task.is_mandatory) displayTitle = "🚨 " + displayTitle + " (Mandatory)";
 
-      
       let assigneeHtml = "";
       if (task.type !== "cooperative" && task.assigned_to_user_id) {
         const assignee = familyMembers.find(u => u.id === task.assigned_to_user_id);
@@ -847,9 +1114,12 @@ async function renderParentDashboard() {
           dependencyHtml = `<p style="font-size: 0.8rem; color: var(--primary-blue); margin-top: 0.25rem;">🔗 Continuation of: <strong>${parentTitle}</strong></p>`;
         }
       }
-      
+
+      const iconUrl = task.icon_url ? resolveIconUrl(task.icon_url) : '';
       const card = document.createElement("div");
-      card.className = `chore-card ${task.status === 'pending_approval' ? 'submitted' : ''}`;
+      card.id = `parent-task-${task.id}`;
+      card.dataset.taskId = task.id;
+      card.className = `chore-card ${task.status === 'pending_approval' ? 'submitted' : ''} has-photo`;
       
       let statusHtml = "";
       let extendHtml = "";
@@ -879,7 +1149,7 @@ async function renderParentDashboard() {
       const coinHtml = task.type === "cooperative" ? `<span class="points-coin coop-theme">🐱🐱</span>` : `<span class="points-coin">🐱</span>`;
       card.innerHTML = `
         <div class="card-top">
-          <div class="card-emoji-box">${renderItemIcon(task, emoji)}</div>
+          <div class="card-emoji-box">${renderItemIcon(task, emoji, title)}</div>
           <div class="card-details">
             <h3>${displayTitle}</h3>
             ${assigneeHtml}
@@ -907,6 +1177,9 @@ async function renderParentDashboard() {
           </div>
         </div>
       `;
+
+      // card onclick removed to only allow image click
+
       choresList.appendChild(card);
     });
   }
@@ -927,16 +1200,18 @@ async function renderParentDashboard() {
       
       const { emoji, title } = parseChoreTitle(task.title);
       const displayTitle = task.type === "cooperative" ? `${title} (👥)` : title;
+      const iconUrl = task.icon_url ? resolveIconUrl(task.icon_url) : '';
       
       const subItem = document.createElement("div");
-      subItem.className = "submission-item";
+      subItem.className = iconUrl ? "submission-item has-photo" : "submission-item";
+
       subItem.innerHTML = `
         <div class="sub-header">
           <span class="sub-who">👾 ${kid.username} completed:</span>
           <span class="sub-pts">+${task.points_reward} ${task.type === 'cooperative' ? '<span class="points-coin coop-theme">🐱🐱</span>' : '<span class="points-coin">🐱</span>'}</span>
         </div>
         <div class="sub-chore">
-          <span class="sub-chore-emoji">${renderItemIcon(task, emoji)}</span>
+          <span class="sub-chore-emoji">${renderItemIcon(task, emoji, title)}</span>
           <span>${displayTitle}</span>
         </div>
         <div class="sub-actions">
@@ -944,6 +1219,15 @@ async function renderParentDashboard() {
           <button class="btn-reject" onclick="rejectSubmission('${sub.id}', '${task.id}')">❌ Reject</button>
         </div>
       `;
+
+      subItem.onclick = (e) => {
+        if (e.target.closest("button, input, select, textarea, a, .sub-actions")) {
+          return;
+        }
+        if (iconUrl) {
+          openImageModal(iconUrl, title);
+        }
+      };
       pendingList.appendChild(subItem);
     });
   }
@@ -1359,7 +1643,7 @@ async function rejectSubmission(submissionId, taskId) {
     await apiCall(`/choregroups/${groupId}/tasks/${taskId}/status`, "PUT", {
       action: "reject"
     });
-    showToast("Submission returned to Kid.");
+    showToast("Submission returned to user.");
   } catch (err) {
     alert("Failed to reject: " + err.message);
   }
@@ -1415,6 +1699,22 @@ async function renderKidDashboard() {
   // A mandatory task blocks non-mandatory tasks if it's assigned OR pending approval
   const hasPendingMandatory = activeOnly.some(t => t.is_mandatory && (t.status === "assigned" || t.status === "pending_approval"));
   
+  // Toggle the Snap Chore button based on mandatory task status
+  const kidSnapBtn = document.getElementById("kid-snap-chore-btn");
+  if (kidSnapBtn) {
+    if (hasPendingMandatory) {
+      kidSnapBtn.disabled = true;
+      kidSnapBtn.title = "Complete your mandatory chores first!";
+      kidSnapBtn.style.opacity = "0.45";
+      kidSnapBtn.style.cursor = "not-allowed";
+    } else {
+      kidSnapBtn.disabled = false;
+      kidSnapBtn.title = "";
+      kidSnapBtn.style.opacity = "1";
+      kidSnapBtn.style.cursor = "pointer";
+    }
+  }
+  
   activeOnly.sort((a, b) => {
     if (a.is_mandatory !== b.is_mandatory) return a.is_mandatory ? -1 : 1;
 
@@ -1442,9 +1742,15 @@ async function renderKidDashboard() {
       }
 
       const isDisabled = isLockedByMandatory || isLockedByParent;
+      const { emoji, title } = parseChoreTitle(task.title);
+      let displayTitle = task.type === "cooperative" ? `${title} (👥)` : title;
+      if (task.is_mandatory) displayTitle = "🚨 " + displayTitle + " (Mandatory)";
+
+      const iconUrl = task.icon_url ? resolveIconUrl(task.icon_url) : '';
       const card = document.createElement("div");
       card.id = `kid-task-${task.id}`;
-      card.className = `chore-card ${task.status === 'pending_approval' ? 'submitted' : ''} ${isDisabled ? 'locked-blur' : ''}`;
+      card.dataset.taskId = task.id;
+      card.className = `chore-card ${task.status === 'pending_approval' ? 'submitted' : ''} ${isDisabled ? 'locked-blur' : ''} has-photo`;
       
       let timerHtml = "";
       if (task.status === "assigned" && task.expires_at) {
@@ -1461,7 +1767,7 @@ async function renderKidDashboard() {
       } else if (task.status === "pending_approval") {
         actionHtml = `
           <div class="card-status-badge">
-            <span>⏳ Awaiting Parent Approval</span>
+            <span>⏳ Awaiting Admin Approval</span>
           </div>
         `;
       } else if (task.status === "done") {
@@ -1478,15 +1784,11 @@ async function renderKidDashboard() {
         `;
       }
       
-      const { emoji, title } = parseChoreTitle(task.title);
-      let displayTitle = task.type === "cooperative" ? `${title} (👥)` : title;
-      if (task.is_mandatory) displayTitle = "🚨 " + displayTitle + " (Mandatory)";
-      
       const coinHtml = task.type === "cooperative" ? `<span class="points-coin coop-theme">🐱🐱</span>` : `<span class="points-coin">🐱</span>`;
 
       card.innerHTML = `
         <div class="card-top">
-          <div class="card-emoji-box">${renderItemIcon(task, emoji)}</div>
+          <div class="card-emoji-box">${renderItemIcon(task, emoji, title)}</div>
           <div class="card-details">
             <h3 ${isDisabled ? 'style="color: #999;"' : ''}>${displayTitle}</h3>
             ${timerHtml}
@@ -1552,6 +1854,8 @@ async function renderKidDashboard() {
             }
           });
         };
+      } else {
+        // card onclick removed to only allow image click
       }
 
       kidChoresList.appendChild(card);
@@ -1752,23 +2056,23 @@ function appraiseReward(isKidView = false) {
     
     const lowerText = requestText.toLowerCase();
     let estimatedPoints = 3;
-    let reasoning = "Standard physical reward request. Moderate parenting effort needed.";
+    let reasoning = "Standard physical reward request. Moderate admin effort needed.";
     
     if (lowerText.includes("video") || lowerText.includes("game") || lowerText.includes("roblox") || lowerText.includes("fortnite") || lowerText.includes("minecraft") || lowerText.includes("screen") || lowerText.includes("ipad") || lowerText.includes("tablet") || lowerText.includes("computer")) {
       estimatedPoints = 5;
-      reasoning = "Requires screen time scheduling and configuration by parents. Screens are priced higher to encourage active physical play.";
+      reasoning = "Requires screen time scheduling and configuration by admin. Screens are priced higher to encourage active physical play.";
     } else if (lowerText.includes("candy") || lowerText.includes("ice cream") || lowerText.includes("sugar") || lowerText.includes("sweet") || lowerText.includes("chocolate") || lowerText.includes("cookie")) {
       estimatedPoints = 4;
-      reasoning = "Sugar reward. Requires parent verification for moderation. Balance with physical activity and healthy snacks.";
+      reasoning = "Sugar reward. Requires admin verification for moderation. Balance with physical activity and healthy snacks.";
     } else if (lowerText.includes("toy") || lowerText.includes("lego") || lowerText.includes("doll") || lowerText.includes("buy") || lowerText.includes("plush")) {
       estimatedPoints = 25;
       reasoning = "Physical retail items require cash budgeting. High point requirements incentivize long-term chores commitment.";
     } else if (lowerText.includes("sleepover") || lowerText.includes("friend") || lowerText.includes("park") || lowerText.includes("zoo")) {
       estimatedPoints = 12;
-      reasoning = "Social outings involve parental schedule coordination, travel, and supervision. Moderate point pricing reflects resource investment.";
+      reasoning = "Social outings involve admin schedule coordination, travel, and supervision. Moderate point pricing reflects resource investment.";
     } else if (lowerText.includes("sleep") || lowerText.includes("bedtime") || lowerText.includes("stay up")) {
       estimatedPoints = 8;
-      reasoning = "Altering sleep routines impacts physical recovery. Fairly high pricing keeps child's schedule consistent.";
+      reasoning = "Altering sleep routines impacts physical recovery. Fairly high pricing keeps user's schedule consistent.";
     }
     
     const aiMsg = document.createElement("div");
@@ -1806,7 +2110,7 @@ function simulateHeroChoreCompletion(button) {
   const heroCard = document.getElementById("hero-demo-card");
   
   if (button.innerText.includes("Done") || button.innerText.includes("סיימתי")) {
-    showToast("Demo Chore Completed! Points balance increased in kid view! 🎉");
+    showToast("Demo Chore Completed! Points balance increased in user view! 🎉");
     
     dbPtsCounter.innerText = "19 Pts";
     dbPtsCounter.style.backgroundColor = "var(--success-green)";
@@ -1821,7 +2125,7 @@ function simulateHeroChoreCompletion(button) {
     button.disabled = true;
     
     setTimeout(() => {
-      showToast("Parent Admin approved the demo chore! +5 Points. 🏆");
+      showToast("Admin approved the demo chore! +5 Points. 🏆");
       button.innerText = "💚 Completed!";
       button.style.backgroundColor = "var(--success-green-hover)";
       
@@ -1837,15 +2141,20 @@ function simulateHeroChoreCompletion(button) {
 /* ==========================================
    TOAST SYSTEM UTIL
    ========================================== */
-function showToast(message) {
+function showToast(message, duration = 4000) {
   const toast = document.getElementById("toast-message");
   if (!toast) return;
   toast.innerText = message;
   toast.classList.add("active");
   
-  setTimeout(() => {
+  if (toast.dataset.timeoutId) {
+    clearTimeout(parseInt(toast.dataset.timeoutId, 10));
+  }
+  
+  const timeoutId = setTimeout(() => {
     toast.classList.remove("active");
-  }, 4000);
+  }, duration);
+  toast.dataset.timeoutId = timeoutId;
 }
 
 /* ==========================================
@@ -2023,6 +2332,29 @@ function escapeHTML(str) {
     .replace(/'/g, "&#039;");
 }
 
+function formatDescriptionWithLinks(text) {
+  if (!text) return '';
+  let escaped = escapeHTML(text);
+
+  // 1. Markdown links: [anchor](url)
+  escaped = escaped.replace(/\[([^\]]+)\]\(((?:https?:\/\/|www\.)[^\s\)]+)\)/gi, (match, label, url) => {
+    const fullUrl = url.toLowerCase().startsWith('www.') ? 'https://' + url : url;
+    return `<a href="${fullUrl}" target="_blank" rel="noopener noreferrer" class="reward-link" onclick="event.stopPropagation();">${label}</a>`;
+  });
+
+  // 2. Raw http/https URLs (ensure not already inside an href attribute)
+  escaped = escaped.replace(/(^|[^"'>=])(https?:\/\/[^\s<]+[^<.,:;"')\]\s])/gi, (match, prefix, url) => {
+    return `${prefix}<a href="${url}" target="_blank" rel="noopener noreferrer" class="reward-link" onclick="event.stopPropagation();">${url}</a>`;
+  });
+
+  // 3. Raw www. URLs (not preceded by :// or already in href)
+  escaped = escaped.replace(/(^|[^"'>=\/])(www\.[^\s<]+[^<.,:;"')\]\s])/gi, (match, prefix, url) => {
+    return `${prefix}<a href="https://${url}" target="_blank" rel="noopener noreferrer" class="reward-link" onclick="event.stopPropagation();">${url}</a>`;
+  });
+
+  return escaped;
+}
+
 async function renderRewardsDashboard() {
   if (!currentSession) return;
   
@@ -2107,12 +2439,12 @@ async function renderRewardsDashboard() {
             
             const coinHtml = isCoop ? `<span class="points-coin coop-theme">🐱🐱</span>` : `<span class="points-coin">🐱</span>`;
             return `
-              <div class="reward-card">
+              <div id="parent-reward-${reward.id}" data-reward-id="${reward.id}" class="reward-card">
                 <div class="card-top">
                   <div class="card-emoji-box">${renderItemIcon(reward, emoji)}</div>
                   <div class="card-details">
                     <h3>${escapeHTML(title)}</h3>
-                    <p>${escapeHTML(reward.description || '')}</p>
+                    <p class="reward-desc">${formatDescriptionWithLinks(reward.description || '')}</p>
                     ${displayNote}
                   </div>
                 </div>
@@ -2155,6 +2487,7 @@ async function renderRewardsDashboard() {
                   <div class="card-details">
                     <h3>${escapeHTML(title)}</h3>
                     <p>Purchased by <strong>${escapeHTML(buyer)}</strong></p>
+                    ${reward && reward.description ? `<p class="reward-desc">${formatDescriptionWithLinks(reward.description)}</p>` : ''}
                   </div>
                 </div>
                 <div class="card-actions-row">
@@ -2205,12 +2538,12 @@ async function renderRewardsDashboard() {
             const buyButton = `<button class="${buttonClass}" ${buyDisabled ? 'disabled' : ''} onclick="handleBuyReward('${reward.id}', '${reward.name.replace(/'/g, "\\'")}')">${cost} ${coinHtml}</button>`;
             
             return `
-              <div class="reward-card ${buyDisabled ? 'disabled' : ''}">
+              <div id="kid-reward-${reward.id}" data-reward-id="${reward.id}" class="reward-card ${buyDisabled ? 'disabled' : ''}">
                 <div class="card-top">
                   <div class="card-emoji-box">${renderItemIcon(reward, emoji)}</div>
                   <div class="card-details">
                     <h3>${escapeHTML(title)}</h3>
-                    <p>${escapeHTML(reward.description || '')}</p>
+                    <p class="reward-desc">${formatDescriptionWithLinks(reward.description || '')}</p>
                     ${displayNote}
                   </div>
                 </div>
@@ -2236,7 +2569,7 @@ async function renderRewardsDashboard() {
           myPendingContainer.innerHTML = myPendingPurchases.map(purchase => {
             const reward = rewards.find(r => r.id === purchase.reward_id);
             const rewardName = reward ? reward.name : 'Unknown Reward';
-            const statusLabel = purchase.status === 'pending_approval' ? '⏳ Voting...' : '✅ Approved (Awaiting Parent)';
+            const statusLabel = purchase.status === 'pending_approval' ? '⏳ Voting...' : '✅ Approved (Awaiting Admin)';
             const cost = reward ? reward.cost : 0;
             const isCoop = reward && reward.type === 'cooperative';
             const costClass = isCoop ? 'reward-cost-display coop-theme' : 'reward-cost-display';
@@ -2249,6 +2582,7 @@ async function renderRewardsDashboard() {
                   <div class="card-details">
                     <h3>${escapeHTML(title)}</h3>
                     <p>${statusLabel}</p>
+                    ${reward && reward.description ? `<p class="reward-desc">${formatDescriptionWithLinks(reward.description)}</p>` : ''}
                   </div>
                 </div>
                 <div class="card-actions-row">
@@ -2288,6 +2622,7 @@ async function renderRewardsDashboard() {
                   <div class="card-details">
                     <h3>${escapeHTML(title)}</h3>
                     <p>Initiated by <strong>${escapeHTML(requester)}</strong></p>
+                    ${reward && reward.description ? `<p class="reward-desc">${formatDescriptionWithLinks(reward.description)}</p>` : ''}
                   </div>
                 </div>
                 <div class="card-actions-row">
@@ -2838,10 +3173,10 @@ async function handleDelegatedLogin(token) {
     const res = await apiCall("/login/delegated", "POST", { token: token });
     setSession({
       id: res.user_id,
-      username: res.username || (res.role === "admin" ? "Parent Space" : "Kid Space"),
+      username: res.username || (res.role === "admin" ? "Admin" : "User"),
       role: res.role,
       choregroup_id: res.choregroup_id,
-      choregroup_name: res.role === "admin" ? "My Household" : "Kid Space"
+      choregroup_name: res.role === "admin" ? "My Household" : "User Space"
     });
     showToast("🔑 Logged in automatically!");
   } catch (err) {
@@ -2898,3 +3233,486 @@ window.clearIconUpload = clearIconUpload;
 window.openCameraModal = openCameraModal;
 window.closeCameraModal = closeCameraModal;
 window.snapCameraPhoto = snapCameraPhoto;
+window.getAiLanguage = getAiLanguage;
+window.handleAiLanguageChange = handleAiLanguageChange;
+
+// --- AI LANGUAGE PREFERENCE ---
+function getAiLanguage() {
+  return localStorage.getItem("chorecraft_ai_language") || "he";
+}
+
+async function handleAiLanguageChange(event) {
+  const newLang = event.target.value;
+  localStorage.setItem("chorecraft_ai_language", newLang);
+  if (currentSession) {
+    currentSession.ai_language = newLang;
+    localStorage.setItem("chorecraft_session", JSON.stringify(currentSession));
+    const groupId = currentSession.choregroup_id;
+    if (groupId && currentSession.role === "admin") {
+      try {
+        await apiCall(`/choregroups/${groupId}/ai/language`, "PUT", { language: newLang });
+        showToast("🌐 Household AI Language updated & saved");
+        return;
+      } catch (err) {
+        console.error("Failed to update household AI language on server:", err);
+      }
+    }
+  }
+  showToast("🌐 AI Language updated");
+}
+
+// --- AI IMAGE-TO-CHORE / REWARD CREATION ---
+
+let aiPickerTargetMode = 'chore';
+let aiCurrentModalType = 'chore';
+
+function triggerAiPhotoPicker(defaultMode = 'chore') {
+  aiPickerTargetMode = defaultMode;
+  openCameraModal('ai-' + defaultMode);
+}
+
+function openAiFileFallback() {
+  closeCameraModal();
+  const input = document.getElementById("ai-image-file-input");
+  if (input) {
+    input.value = "";
+    input.click();
+  }
+}
+
+async function handleAiFileSelected(event) {
+  const file = event.target.files && event.target.files[0];
+  if (!file) return;
+  await processAiImageFile(file, aiPickerTargetMode);
+}
+
+// Compress high-resolution images client-side before uploading to optimize speed & payload size
+async function compressImageFile(file) {
+  if (!file || !file.type || !file.type.startsWith("image/")) {
+    return file;
+  }
+  return new Promise((resolve) => {
+    const img = new Image();
+    const url = URL.createObjectURL(file);
+    img.onload = () => {
+      URL.revokeObjectURL(url);
+      // Resize to max 400px for AI vision analysis — optimal balance for instant encoding & accuracy
+      const maxDim = 400;
+      let width = img.width;
+      let height = img.height;
+      if (width > maxDim || height > maxDim) {
+        if (width > height) {
+          height = Math.round((height * maxDim) / width);
+          width = maxDim;
+        } else {
+          width = Math.round((width * maxDim) / height);
+          height = maxDim;
+        }
+      }
+      const canvas = document.createElement("canvas");
+      canvas.width = width;
+      canvas.height = height;
+      const ctx = canvas.getContext("2d");
+      ctx.drawImage(img, 0, 0, width, height);
+      canvas.toBlob(
+        (blob) => {
+          if (blob) {
+            const compressed = new File([blob], file.name || `photo_${Date.now()}.jpg`, {
+              type: "image/jpeg",
+              lastModified: Date.now()
+            });
+            resolve(compressed);
+          } else {
+            resolve(file);
+          }
+        },
+        "image/jpeg",
+        0.60
+      );
+    };
+    img.onerror = () => {
+      URL.revokeObjectURL(url);
+      resolve(file);
+    };
+    img.src = url;
+  });
+}
+
+async function processAiImageFile(file, defaultMode = 'chore') {
+  const groupId = currentSession ? currentSession.choregroup_id : null;
+  if (!groupId) {
+    alert("Please log in first to use AI photo analysis.");
+    return;
+  }
+
+  const isKid = currentSession && currentSession.role === "user";
+  const isHebrew = (getAiLanguage() === 'he');
+
+  const isChore = (defaultMode !== 'reward');
+  const itemLabel = isChore ? (isHebrew ? 'מטלה' : 'Chore') : (isHebrew ? 'פרס' : 'Reward');
+  const titleText = isHebrew ? `יוצר ${itemLabel}...` : `Creating ${itemLabel}...`;
+  const badgeText = isHebrew ? `⚡ מעבד...` : `⚡ Analyzing...`;
+  const initialStatus = isHebrew ? `📸 מעלה ומעבד את התמונה...` : `📸 Preparing & uploading photo...`;
+
+  // Use the appropriate container for the loading placeholder based on role and mode
+  let containerId;
+  if (isKid) {
+    containerId = isChore ? 'kid-chores-list' : 'kid-rewards-list';
+  } else {
+    containerId = isChore ? 'parent-chores-list' : 'parent-rewards-list';
+  }
+  const container = document.getElementById(containerId);
+  const placeholderId = "ai-loading-card-" + Date.now();
+  const TOTAL_TIMEOUT_SECONDS = 35;
+
+  // Create sleek grayed-out loading placeholder card with animated shimmering progress bar
+  if (container) {
+    const loadingCardHtml = `
+      <div id="${placeholderId}" class="reward-card ai-loading-card" style="opacity: 0.95; background: var(--card-bg, #ffffff); border: 2px dashed #8b5cf6; pointer-events: none; transition: all 0.3s ease; box-shadow: 0 4px 15px rgba(139, 92, 246, 0.15); margin-bottom: 1rem;">
+        <div class="card-top" style="display: flex; gap: 0.85rem; align-items: center; padding: 0.85rem 1rem;">
+          <div class="card-emoji-box ai-pulsing-emoji" style="display: flex; align-items: center; justify-content: center; font-size: 1.75rem; width: 48px; height: 48px; border-radius: 14px; background: linear-gradient(135deg, rgba(139,92,246,0.15), rgba(236,72,153,0.15)); flex-shrink: 0;">✨</div>
+          <div class="card-details" style="flex: 1; min-width: 0;">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.35rem;">
+              <h3 style="margin: 0; font-size: 1rem; font-weight: 700; color: #8b5cf6;">${titleText}</h3>
+              <span style="font-size: 0.78rem; font-weight: 700; color: #8b5cf6; background: rgba(139,92,246,0.12); padding: 2px 9px; border-radius: 999px; white-space: nowrap;">${badgeText}</span>
+            </div>
+            <p id="${placeholderId}-status" style="margin: 0 0 0.45rem 0; font-size: 0.8rem; color: var(--text-muted); line-height: 1.2;">
+              ${initialStatus}
+            </p>
+            <div class="ai-progress-track">
+              <div class="ai-progress-shimmer"></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    `;
+    const tempWrapper = document.createElement('div');
+    tempWrapper.innerHTML = loadingCardHtml.trim();
+    if (container.firstChild) {
+      container.insertBefore(tempWrapper.firstElementChild, container.firstChild);
+    } else {
+      container.appendChild(tempWrapper.firstElementChild);
+    }
+  }
+
+  // Live timer interval to update dynamic status phases based on elapsed time
+  let elapsedSec = 0;
+  const progressInterval = setInterval(() => {
+    elapsedSec++;
+    const statusEl = document.getElementById(`${placeholderId}-status`);
+    if (statusEl) {
+      if (isHebrew) {
+        if (elapsedSec < 3) {
+          statusEl.textContent = "📸 מעלה ומעבד את התמונה...";
+        } else if (elapsedSec < 8) {
+          statusEl.textContent = isChore ? "🧠 Gemini AI מזהה חפצים ומטלות..." : "🧠 Gemini AI מזהה את הפרס...";
+        } else {
+          statusEl.textContent = isChore ? "🪙 מחשב מטבעות ומכין את המשימה..." : "🪙 מעריך שווי ומחשב מטבעות לפרס...";
+        }
+      } else {
+        if (elapsedSec < 3) {
+          statusEl.textContent = "📸 Preparing & uploading photo...";
+        } else if (elapsedSec < 8) {
+          statusEl.textContent = isChore ? "🧠 Gemini AI analyzing objects & chores..." : "🧠 Gemini AI identifying reward...";
+        } else {
+          statusEl.textContent = isChore ? "🪙 Calculating coins & finalizing details..." : "🪙 Appraising retail value & coins...";
+        }
+      }
+    }
+  }, 1000);
+
+  showToast(isHebrew ? `✨ מנתח תמונה ויוצר ${itemLabel}...` : `✨ Analyzing photo & creating ${itemLabel}...`, 4000);
+
+  const compressedFile = await compressImageFile(file);
+
+  const formData = new FormData();
+  formData.append("image", compressedFile);
+  formData.append("language", getAiLanguage());
+  formData.append("mode", isChore ? "chore" : "reward");
+
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), TOTAL_TIMEOUT_SECONDS * 1000);
+
+  try {
+    const token = localStorage.getItem("chorecraft_token");
+    const headers = {};
+    if (token) {
+      headers["Authorization"] = `Bearer ${token}`;
+    }
+
+    const apiBase = getApiBase();
+    const response = await fetch(`${apiBase}/choregroups/${groupId}/ai/analyze-image`, {
+      method: "POST",
+      headers: headers,
+      body: formData,
+      credentials: "include",
+      signal: controller.signal
+    });
+    clearTimeout(timeoutId);
+
+    if (!response.ok) {
+      const errText = await response.text();
+      throw new Error(errText || "AI image analysis failed");
+    }
+
+    const data = await response.json();
+
+    // If the AI says there's no real chore/reward in the image, show AI explanation in target language for extended time so child can read
+    if (data.is_valid === false) {
+      const fallbackMsg = isHebrew
+        ? "לא זוהתה מטלה או פרס בתמונה זו! הכל נראה נקי ומסודר 😊"
+        : "No chore or reward found in this photo! Everything looks tidy 😊";
+      const explanation = data.invalid_reason || data.description || fallbackMsg;
+      showToast(`😎 ${explanation}`, 10000); // 10s display time for child reading
+      return;
+    }
+
+    // Directly create item based on active tab
+    if (isChore) {
+      const payload = {
+        title: data.title || (isHebrew ? "✨ מטלה מהתמונה" : "✨ Task from Image"),
+        type: "individual",
+        points_reward: data.points_reward || 2,
+        is_mandatory: false,
+        icon_url: data.icon_url || null
+      };
+      // For kids, the backend auto-assigns individual chore to the creator with fair coin rewards
+      const createdTask = await apiCall(`/choregroups/${groupId}/tasks`, "POST", payload);
+      showToast(isHebrew ? "המטלה נוצרה בהצלחה מהתמונה! 🧹✨" : "Chore created from photo! 🧹✨");
+      if (isKid) {
+        await renderKidDashboard();
+      } else {
+        await renderParentDashboard();
+      }
+
+      // Smoothly scroll down to newly created chore card
+      setTimeout(() => {
+        const taskId = createdTask && (createdTask.id || createdTask.ID);
+        let targetEl = null;
+        if (taskId) {
+          targetEl = document.getElementById(isKid ? `kid-task-${taskId}` : `parent-task-${taskId}`) ||
+                     document.querySelector(`[data-task-id="${taskId}"]`);
+        }
+        if (targetEl) {
+          targetEl.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+          targetEl.classList.add('newly-created-pulse');
+          setTimeout(() => targetEl.classList.remove('newly-created-pulse'), 3500);
+        }
+      }, 150);
+    } else {
+      const payload = {
+        name: data.title || (isHebrew ? "✨ פרס מהתמונה" : "✨ Reward from Image"),
+        cost: data.points_reward || 1,
+        type: "individual",
+        icon_url: data.icon_url || null
+      };
+      const createdReward = await apiCall(`/choregroups/${groupId}/rewards`, "POST", payload);
+      showToast(isHebrew ? "הפרס נוצר בהצלחה מהתמונה! 🎁✨" : "Reward created from photo! 🎁✨");
+      await renderRewardsDashboard();
+
+      // Smoothly scroll down to newly created reward card
+      setTimeout(() => {
+        const rewardId = createdReward && (createdReward.id || createdReward.ID);
+        let targetEl = null;
+        if (rewardId) {
+          targetEl = document.getElementById(isKid ? `kid-reward-${rewardId}` : `parent-reward-${rewardId}`) ||
+                     document.getElementById(`reward-card-${rewardId}`) ||
+                     document.querySelector(`[data-reward-id="${rewardId}"]`);
+        }
+        if (targetEl) {
+          targetEl.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+          targetEl.classList.add('newly-created-pulse');
+          setTimeout(() => targetEl.classList.remove('newly-created-pulse'), 3500);
+        }
+      }, 150);
+    }
+  } catch (err) {
+    clearTimeout(timeoutId);
+    if (progressInterval) clearInterval(progressInterval);
+    let msg = err.message || "";
+    if (err.name === 'AbortError' || msg.includes('aborted') || msg.includes('abort') || msg.includes('timed out')) {
+      showToast(isHebrew ? "🤖⏳ ניתוח התמונה לקח זמן רב מדי עקב עומס בשרתים. אנא המתינו 15-20 שניות ונסו שוב! 📸" : "🤖⏳ AI servers took too long (busy). Please wait 15-20 seconds and try again! 📸", 9000);
+    } else if (msg.includes("429") || msg.includes("Quota") || msg.includes("rate limit") || msg.includes("RESOURCE_EXHAUSTED") || msg.includes("עמוסים") || msg.includes("busy") || msg.includes("תנומה")) {
+      showToast(isHebrew ? "🤖⏳ שרתי ה-AI עמוסים כרגע (מגבלת קצב). אנא המתינו 15-20 שניות ונסו שוב! 😴✨" : "🤖⏳ AI servers are busy right now (rate limit). Please wait 15-20 seconds and try again! 😴✨", 9000);
+    } else {
+      showToast(msg.startsWith("🤖") ? msg : `🤖⚠️ ${msg || (isHebrew ? "ה-AI לא הצליח לנתח את התמונה כרגע. נסו שוב! 📸✨" : "The AI couldn't analyze the photo right now. Please try again! 📸✨")}`, 9000);
+    }
+  } finally {
+    clearTimeout(timeoutId);
+    if (progressInterval) clearInterval(progressInterval);
+    const loader = document.getElementById(placeholderId);
+    if (loader) loader.remove();
+  }
+}
+
+
+
+function openAiCreateModalWithData(data) {
+  const modal = document.getElementById("ai-create-modal");
+  if (!modal) return;
+
+  const mode = data.item_type || aiPickerTargetMode || 'chore';
+  setAiModalType(mode);
+
+  document.getElementById("ai-modal-image-preview").src = resolveIconUrl(data.icon_url);
+  document.getElementById("ai-input-title").value = data.title || "";
+  document.getElementById("ai-input-description").value = data.description || "";
+  document.getElementById("ai-input-points").value = data.points_reward || 1;
+  document.getElementById("ai-input-icon-url").value = data.icon_url || "";
+  document.getElementById("ai-valuation-reasoning").textContent = data.valuation_reasoning || `$${(data.points_reward || 1) * 2} est. value (Fibonacci scale)`;
+
+  const catSelect = document.getElementById("ai-input-category");
+  if (catSelect) {
+    if (data.category && data.category !== 'mandatory') {
+      catSelect.value = data.category;
+    } else if (mode === 'chore') {
+      catSelect.value = 'personal';
+    }
+  }
+
+  modal.classList.add("active");
+}
+
+function setAiModalType(type) {
+  aiCurrentModalType = type;
+  const choreBtn = document.getElementById("ai-type-chore-btn");
+  const rewardBtn = document.getElementById("ai-type-reward-btn");
+  const pointsLabel = document.getElementById("ai-points-label");
+  const categoryLabel = document.getElementById("ai-category-label");
+  const categorySelect = document.getElementById("ai-input-category");
+
+  if (type === 'chore') {
+    if (choreBtn) { choreBtn.classList.add("active", "btn-primary"); choreBtn.classList.remove("btn-outline"); }
+    if (rewardBtn) { rewardBtn.classList.remove("active", "btn-primary"); rewardBtn.classList.add("btn-outline"); }
+    if (pointsLabel) pointsLabel.textContent = "Coin Reward";
+    if (categoryLabel) categoryLabel.textContent = "Chore Type";
+
+    if (categorySelect) {
+      categorySelect.innerHTML = `
+        <option value="personal">Personal Chore (Single Assignee)</option>
+        <option value="cooperative">Cooperative Chore (Group Pool)</option>
+        <option value="mandatory">Mandatory Chore (0 Coins)</option>
+      `;
+    }
+  } else {
+    if (rewardBtn) { rewardBtn.classList.add("active", "btn-primary"); rewardBtn.classList.remove("btn-outline"); }
+    if (choreBtn) { choreBtn.classList.remove("active", "btn-primary"); choreBtn.classList.add("btn-outline"); }
+    if (pointsLabel) pointsLabel.textContent = "Coin Cost";
+    if (categoryLabel) categoryLabel.textContent = "Reward Type";
+
+    if (categorySelect) {
+      categorySelect.innerHTML = `
+        <option value="individual">Individual Reward (Single User)</option>
+        <option value="cooperative">Cooperative Reward (Group Funded)</option>
+      `;
+    }
+  }
+
+  updateAiValuationHint();
+}
+
+function updateAiValuationHint() {
+  const ptsInput = document.getElementById("ai-input-points");
+  const reasoningDiv = document.getElementById("ai-valuation-reasoning");
+  if (ptsInput && reasoningDiv) {
+    const pts = parseInt(ptsInput.value) || 1;
+    const estUsd = pts * 2;
+    reasoningDiv.textContent = `~$${estUsd} est. value (1 coin = $2, Fibonacci scale)`;
+  }
+}
+
+function closeAiCreateModal() {
+  const modal = document.getElementById("ai-create-modal");
+  if (modal) modal.classList.remove("active");
+}
+
+async function handleAiCreateSubmit(e) {
+  e.preventDefault();
+
+  const title = document.getElementById("ai-input-title").value.trim();
+  const description = document.getElementById("ai-input-description").value.trim();
+  const points = parseInt(document.getElementById("ai-input-points").value) || 1;
+  const category = document.getElementById("ai-input-category").value;
+  const iconUrl = document.getElementById("ai-input-icon-url").value || null;
+  const choregroupID = currentSession.choregroup_id;
+
+  try {
+    if (aiCurrentModalType === 'chore') {
+      const payload = {
+        title: title,
+        type: (category === 'cooperative') ? 'cooperative' : 'individual',
+        points_reward: (category === 'mandatory') ? 0 : points,
+        is_mandatory: (category === 'mandatory'),
+        icon_url: iconUrl
+      };
+      const createdTask = await apiCall(`/choregroups/${choregroupID}/tasks`, "POST", payload);
+      showToast("Chore created from AI photo! 🧹✨");
+      const isKid = currentSession && currentSession.role === "user";
+      if (isKid) {
+        await renderKidDashboard();
+      } else {
+        await renderParentDashboard();
+      }
+      setTimeout(() => {
+        const taskId = createdTask && (createdTask.id || createdTask.ID);
+        let targetEl = null;
+        if (taskId) {
+          targetEl = document.getElementById(isKid ? `kid-task-${taskId}` : `parent-task-${taskId}`) ||
+                     document.querySelector(`[data-task-id="${taskId}"]`);
+        }
+        if (targetEl) {
+          targetEl.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+          targetEl.classList.add('newly-created-pulse');
+          setTimeout(() => targetEl.classList.remove('newly-created-pulse'), 3500);
+        }
+      }, 150);
+    } else {
+      const payload = {
+        name: title,
+        description: description || null,
+        cost: points,
+        type: (category === 'cooperative') ? 'cooperative' : 'individual',
+        icon_url: iconUrl
+      };
+      const createdReward = await apiCall(`/choregroups/${choregroupID}/rewards`, "POST", payload);
+      showToast("Reward created from AI photo! 🎁✨");
+      await renderRewardsDashboard();
+      setTimeout(() => {
+        const rewardId = createdReward && (createdReward.id || createdReward.ID);
+        let targetEl = null;
+        if (rewardId) {
+          targetEl = document.getElementById(isKid ? `kid-reward-${rewardId}` : `parent-reward-${rewardId}`) ||
+                     document.getElementById(`reward-card-${rewardId}`) ||
+                     document.querySelector(`[data-reward-id="${rewardId}"]`);
+        }
+        if (targetEl) {
+          targetEl.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+          targetEl.classList.add('newly-created-pulse');
+          setTimeout(() => targetEl.classList.remove('newly-created-pulse'), 3500);
+        }
+      }, 150);
+    }
+
+    closeAiCreateModal();
+  } catch (err) {
+    alert("Failed to create item: " + err.message);
+  }
+}
+
+window.triggerAiPhotoPicker = triggerAiPhotoPicker;
+window.openAiFileFallback = openAiFileFallback;
+window.handleAiFileSelected = handleAiFileSelected;
+window.setAiModalType = setAiModalType;
+window.updateAiValuationHint = updateAiValuationHint;
+window.closeAiCreateModal = closeAiCreateModal;
+window.handleAiCreateSubmit = handleAiCreateSubmit;
+window.openImageModal = openImageModal;
+window.closeImageModal = closeImageModal;
+window.toggleTheme = toggleTheme;
+window.setTheme = setTheme;
+window.initTheme = initTheme;
+window.handleThemeToggleClick = handleThemeToggleClick;
+window.handleThemeSwitchChange = handleThemeSwitchChange;
+
+
+

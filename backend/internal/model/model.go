@@ -14,6 +14,7 @@ type ChoreGroup struct {
 	ID                uuid.UUID `json:"id"`
 	Name              string    `json:"name"`
 	CooperativePoints int       `json:"cooperative_points"`
+	AILanguage        string    `json:"ai_language"`
 }
 
 // User represents the users table.
@@ -201,4 +202,19 @@ type PushSubscribeRequest struct {
 		P256dh string `json:"p256dh"`
 		Auth   string `json:"auth"`
 	} `json:"keys"`
+}
+
+// AIImageAnalysisResult defines the response returned by the AI image analyzer.
+type AIImageAnalysisResult struct {
+	IsValid            bool    `json:"is_valid"`            // false if image doesn't show a recognizable chore or reward
+	InvalidReason      string  `json:"invalid_reason"`      // AI explanation in target language why there is no chore
+	ItemType           string  `json:"item_type"`           // "chore" or "reward"
+	Title              string  `json:"title"`
+	Description        string  `json:"description"`
+	Category           string  `json:"category"` // "personal", "cooperative", "mandatory", "individual"
+	EstimatedUSD       float64 `json:"estimated_usd"`
+	PointsReward       int     `json:"points_reward"` // Fibonacci coin count
+	ValuationReasoning string  `json:"valuation_reasoning"`
+	IconURL            string  `json:"icon_url"`
+	SuggestedEmoji     string  `json:"suggested_emoji"`
 }

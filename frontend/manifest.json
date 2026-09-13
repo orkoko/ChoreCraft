@@ -3,7 +3,8 @@
   "short_name": "ChoreCraft",
   "start_url": ".",
   "display": "standalone",
-  "background_color": "#fff",
+  "theme_color": "#000000",
+  "background_color": "#000000",
   "description": "Gamified Chores & Rewards",
   "icons": [{
     "src": "icon.svg",

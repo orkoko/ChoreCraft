@@ -135,8 +135,8 @@ func (r *Repository) DeleteUser(ctx context.Context, userID, choregroupID uuid.U
 // GetChoreGroupByID retrieves a choregroup by its ID.
 func (r *Repository) GetChoreGroupByID(ctx context.Context, choregroupID uuid.UUID) (model.ChoreGroup, error) {
 	var group model.ChoreGroup
-	err := r.db.QueryRow(ctx, "SELECT id, name, cooperative_points FROM choregroups WHERE id = $1", choregroupID).Scan(
-		&group.ID, &group.Name, &group.CooperativePoints)
+	err := r.db.QueryRow(ctx, "SELECT id, name, cooperative_points, COALESCE(ai_language, 'he') FROM choregroups WHERE id = $1", choregroupID).Scan(
+		&group.ID, &group.Name, &group.CooperativePoints, &group.AILanguage)
 	return group, err
 }
 
@@ -171,6 +171,12 @@ func (r *Repository) UpdateTaskStatus(ctx context.Context, taskID, choregroupID 
 	return err
 }
 
+// ClearTaskIcon clears the icon_url for a task so it falls back to its emoji.
+func (r *Repository) ClearTaskIcon(ctx context.Context, taskID, choregroupID uuid.UUID) error {
+	_, err := r.db.Exec(ctx, "UPDATE tasks SET icon_url = NULL WHERE id = $1 AND choregroup_id = $2", taskID, choregroupID)
+	return err
+}
+
 // ListTasksForUser retrieves tasks for a specific user in a choregroup (public and assigned).
 func (r *Repository) ListTasksForUser(ctx context.Context, choregroupID, userID uuid.UUID) ([]model.Task, error) {
 	query := `
@@ -193,6 +199,22 @@ func (r *Repository) ListTasksForUser(ctx context.Context, choregroupID, userID 
 		tasks = append(tasks, task)
 	}
 	return tasks, nil
+}
+
+// HasActiveMandatoryTasksForUser checks if a user has any active mandatory tasks (assigned or pending approval).
+func (r *Repository) HasActiveMandatoryTasksForUser(ctx context.Context, choregroupID, userID uuid.UUID) (bool, error) {
+	query := `
+		SELECT EXISTS(
+			SELECT 1 FROM tasks
+			WHERE choregroup_id = $1
+			  AND is_mandatory = true
+			  AND status IN ('assigned', 'pending_approval')
+			  AND (assigned_to_user_id IS NULL OR assigned_to_user_id = $2)
+		)
+	`
+	var exists bool
+	err := r.db.QueryRow(ctx, query, choregroupID, userID).Scan(&exists)
+	return exists, err
 }
 
 // ListAllTasks for ChoreGroup retrieves all tasks for a choregroup.
@@ -484,9 +506,15 @@ func (r *Repository) UpdateRewardName(ctx context.Context, rewardID uuid.UUID, n
 // GetChoreGroupByName retrieves a choregroup by its name.
 func (r *Repository) GetChoreGroupByName(ctx context.Context, name string) (model.ChoreGroup, error) {
 	var group model.ChoreGroup
-	err := r.db.QueryRow(ctx, "SELECT id, name, cooperative_points FROM choregroups WHERE name = $1", name).Scan(
-		&group.ID, &group.Name, &group.CooperativePoints)
+	err := r.db.QueryRow(ctx, "SELECT id, name, cooperative_points, COALESCE(ai_language, 'he') FROM choregroups WHERE name = $1", name).Scan(
+		&group.ID, &group.Name, &group.CooperativePoints, &group.AILanguage)
 	return group, err
+}
+
+// UpdateChoreGroupAILanguage updates the household's AI content language.
+func (r *Repository) UpdateChoreGroupAILanguage(ctx context.Context, choregroupID uuid.UUID, language string) error {
+	_, err := r.db.Exec(ctx, "UPDATE choregroups SET ai_language = $1 WHERE id = $2", language, choregroupID)
+	return err
 }
 
 // GetUserByChoreGroupIDAndUsername retrieves a user by their choregroupID and username.
