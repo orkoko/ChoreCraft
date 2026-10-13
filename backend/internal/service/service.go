@@ -1,10 +1,15 @@
 package service
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"image"
+	_ "image/gif"
+	"image/jpeg"
+	_ "image/png"
 	"log/slog"
 	"math"
 	"math/rand/v2"
@@ -86,7 +91,8 @@ func (s *Service) AddUserToChoreGroup(ctx context.Context, choregroupName, usern
 	if err != nil {
 		return model.User{}, err
 	}
-	return s.repo.AddUserToChoreGroup(ctx, choregroupName, username, passwordHash, userRole)
+	newUser, err := s.repo.AddUserToChoreGroup(ctx, choregroupName, username, passwordHash, userRole)
+	return newUser, err
 }
 
 // Login verifies a user's credentials and returns their details.
@@ -124,6 +130,12 @@ func (s *Service) Login(ctx context.Context, choregroupName, username, password 
 		Role:                  user.Role,
 		HasClaimedWelcomeSpin: user.HasClaimedWelcomeSpin,
 		ProfileImageURL:       user.ProfileImageURL,
+		PointsBackground:      user.PointsBackground,
+		UnlockedBackgrounds:   user.UnlockedBackgrounds,
+		AvatarFrame:           user.AvatarFrame,
+		UnlockedAvatarFrames:  user.UnlockedAvatarFrames,
+		AILanguage:            group.AILanguage,
+		AIInstructions:        group.AIInstructions,
 	}, nil
 }
 
@@ -140,6 +152,11 @@ func (s *Service) GetChoreGroupByID(ctx context.Context, choregroupID uuid.UUID)
 // UpdateChoreGroupAILanguage updates the household's AI content language.
 func (s *Service) UpdateChoreGroupAILanguage(ctx context.Context, choregroupID uuid.UUID, language string) error {
 	return s.repo.UpdateChoreGroupAILanguage(ctx, choregroupID, language)
+}
+
+// UpdateChoreGroupAIInstructions updates the household's custom instructions for AI chore analysis and rewards.
+func (s *Service) UpdateChoreGroupAIInstructions(ctx context.Context, choregroupID uuid.UUID, instructions string) error {
+	return s.repo.UpdateChoreGroupAIInstructions(ctx, choregroupID, instructions)
 }
 
 
@@ -231,10 +248,45 @@ func (s *Service) HasActiveMandatoryTasks(ctx context.Context, choregroupID, use
 }
 
 // CreateTask creates a new task from a DTO.
-// If kidCreatorID is non-nil, the task was created by a kid and trivial tasks (1 coin) become mandatory.
+// If kidCreatorID is non-nil, the task was created by a user/kid:
+// chores created by users have 1 less coin than if an admin creates it;
+// if the estimation is 1 coin, instead of 0 coins the task becomes mandatory on the user who created it.
 func (s *Service) CreateTask(ctx context.Context, choregroupID uuid.UUID, req model.CreateTaskRequest, onResolved func(), kidCreatorID *uuid.UUID) (*model.Task, error) {
+	if kidCreatorID != nil {
+		req.AssignedToUserID = kidCreatorID
+		req.Type = "individual"
+	}
+
 	if req.IsMandatory {
 		req.PointsReward = 0
+	} else if req.PointsReward <= 0 {
+		var customRules string
+		if group, err := s.repo.GetChoreGroupByID(ctx, choregroupID); err == nil {
+			customRules = group.AIInstructions
+		}
+		baseCoins := s.EstimateChoreCoins(ctx, req.Title, customRules)
+		if kidCreatorID != nil {
+			if baseCoins <= 1 {
+				req.IsMandatory = true
+				req.PointsReward = 0
+				req.AssignedToUserID = kidCreatorID
+			} else {
+				req.PointsReward = baseCoins - 1
+			}
+		} else {
+			req.PointsReward = baseCoins
+		}
+	} else if kidCreatorID != nil {
+		// When kid creates a task directly without photo upload (or manual API call):
+		if req.IconURL == nil || *req.IconURL == "" {
+			if req.PointsReward <= 1 {
+				req.IsMandatory = true
+				req.PointsReward = 0
+				req.AssignedToUserID = kidCreatorID
+			} else {
+				req.PointsReward = req.PointsReward - 1
+			}
+		}
 	}
 	if req.ParentTaskID != nil {
 		parent, err := s.repo.GetTask(ctx, *req.ParentTaskID, choregroupID)
@@ -263,6 +315,8 @@ func (s *Service) CreateTask(ctx context.Context, choregroupID uuid.UUID, req mo
 	if err != nil {
 		return nil, err
 	}
+
+
 	if needsAsync {
 		go func(t *model.Task, origTitle string) {
 			bgCtx := context.Background()
@@ -291,6 +345,12 @@ func (s *Service) UpdateTask(ctx context.Context, adminUser model.User, taskID u
 	}
 	if req.IsMandatory {
 		req.PointsReward = 0
+	} else if req.PointsReward <= 0 {
+		var customRules string
+		if group, err := s.repo.GetChoreGroupByID(ctx, adminUser.ChoreGroupID); err == nil {
+			customRules = group.AIInstructions
+		}
+		req.PointsReward = s.EstimateChoreCoins(ctx, req.Title, customRules)
 	}
 	if req.ParentTaskID != nil {
 		parent, err := s.repo.GetTask(ctx, *req.ParentTaskID, adminUser.ChoreGroupID)
@@ -323,7 +383,93 @@ func (s *Service) UpdateTask(ctx context.Context, adminUser model.User, taskID u
 	return err
 }
 
-// DeleteUploadedPhoto deletes an uploaded photo file from the uploads directory if rawURL points to a local upload.
+// SaveUpload stores binary image content in the PostgreSQL database repository.
+func (s *Service) SaveUpload(ctx context.Context, filename string, mimeType string, data []byte) (string, error) {
+	ext := filepath.Ext(filename)
+	if ext == "" {
+		if strings.Contains(mimeType, "png") {
+			ext = ".png"
+		} else if strings.Contains(mimeType, "gif") {
+			ext = ".gif"
+		} else if strings.Contains(mimeType, "webp") {
+			ext = ".webp"
+		} else {
+			ext = ".jpg"
+		}
+	}
+
+	fileID := uuid.New()
+	cleanFilename := fmt.Sprintf("%s%s", fileID.String(), ext)
+
+	upload := model.Upload{
+		ID:        fileID,
+		Filename:  cleanFilename,
+		MIMEType:  mimeType,
+		Data:      data,
+		SizeBytes: int64(len(data)),
+		CreatedAt: time.Now(),
+	}
+
+	if err := s.repo.SaveUpload(ctx, upload); err != nil {
+		return "", err
+	}
+
+	return fmt.Sprintf("/uploads/%s", cleanFilename), nil
+}
+
+// GetUploadByID retrieves an upload record with its binary BYTEA data from PostgreSQL repository.
+func (s *Service) GetUploadByID(ctx context.Context, id uuid.UUID) (*model.Upload, error) {
+	return s.repo.GetUploadByID(ctx, id)
+}
+
+// DeleteUploadedPhoto deletes an uploaded photo file from the database repository and local disk.
+func (s *Service) DeleteUploadedPhoto(ctx context.Context, rawURL string) {
+	trimmed := strings.TrimSpace(rawURL)
+	if trimmed == "" {
+		return
+	}
+
+	path := trimmed
+	if u, err := url.Parse(trimmed); err == nil && u.Path != "" {
+		path = u.Path
+	}
+
+	idx := strings.Index(path, "/uploads/")
+	if idx == -1 {
+		if strings.HasPrefix(path, "uploads/") {
+			path = "/" + path
+			idx = 0
+		} else {
+			return
+		}
+	}
+
+	filename := path[idx+len("/uploads/"):]
+	filename = filepath.Base(filename)
+	if filename == "." || filename == "/" || filename == "" {
+		return
+	}
+
+	rawID := strings.TrimSuffix(filename, filepath.Ext(filename))
+	if fileID, err := uuid.Parse(rawID); err == nil {
+		_ = s.repo.DeleteUploadByID(ctx, fileID)
+	}
+
+	targetPaths := []string{
+		filepath.Join("./uploads", filename),
+		filepath.Join("uploads", filename),
+		filepath.Join("backend/uploads", filename),
+	}
+
+	for _, p := range targetPaths {
+		if err := os.Remove(p); err == nil {
+			slog.Info("deleted uploaded photo file", "path", p)
+			return
+		}
+	}
+}
+
+// DeleteUploadedPhoto is a helper for deleting uploaded files.
 func DeleteUploadedPhoto(rawURL string) {
 	trimmed := strings.TrimSpace(rawURL)
 	if trimmed == "" {
@@ -361,8 +507,6 @@ func DeleteUploadedPhoto(rawURL string) {
 		if err := os.Remove(p); err == nil {
 			slog.Info("deleted uploaded photo file", "path", p)
 			return
-		} else if !os.IsNotExist(err) {
-			slog.Warn("failed to delete uploaded photo file", "path", p, "error", err)
 		}
 	}
 }
@@ -385,7 +529,22 @@ func (s *Service) DeleteTask(ctx context.Context, adminUser model.User, taskID u
 		DeleteUploadedPhoto(*task.IconURL)
 	}
 
-	return s.repo.DeleteTask(ctx, taskID, adminUser.ChoreGroupID)
+	err = s.repo.DeleteTask(ctx, taskID, adminUser.ChoreGroupID)
+	if err == nil {
+		_ = s.repo.LogActivity(ctx, model.ActivityEvent{
+			ChoreGroupID: adminUser.ChoreGroupID,
+			UserID:       &adminUser.ID,
+			UserUsername: adminUser.Username,
+			ActivityType: "task_deleted",
+			Title:        task.Title,
+			Description:  task.Title,
+			Metadata: map[string]interface{}{
+				"task_id": task.ID.String(),
+				"title":   task.Title,
+			},
+		})
+	}
+	return err
 }
 
 // ListTasks retrieves tasks based on the user's role.
@@ -521,6 +680,22 @@ func (s *Service) UpdateTaskStatusByAdmin(ctx context.Context, adminUser model.U
 		if err := s.repo.UpdateTaskSubmissionStatus(ctx, submission.ID, adminUser.ChoreGroupID, "approved"); err != nil {
 			return err
 		}
+
+		submittingUser, _ := s.repo.GetUserByID(ctx, submission.SubmittedBy)
+		_ = s.repo.LogActivity(ctx, model.ActivityEvent{
+			ChoreGroupID: adminUser.ChoreGroupID,
+			UserID:       &submission.SubmittedBy,
+			UserUsername: submittingUser.Username,
+			ActivityType: "task_completed",
+			Title:        "Task Completed",
+			Description:  task.Title,
+			Metadata: map[string]interface{}{
+				"task_id": task.ID.String(),
+				"title":   task.Title,
+				"points":  pointsToAward,
+			},
+		})
+
 		go s.broadcastFCMNotification(taskID)
 		return nil
 	}
@@ -533,6 +708,7 @@ func (s *Service) UpdateTaskStatusByAdmin(ctx context.Context, adminUser model.U
 		if err := s.repo.UpdateTaskSubmissionStatus(ctx, submission.ID, adminUser.ChoreGroupID, "rejected"); err != nil {
 			return err
 		}
+
 		return nil
 	}
 	return errors.New("invalid action")
@@ -583,7 +759,8 @@ func (s *Service) SubmitTask(ctx context.Context, taskID, userID, choregroupID u
 		SubmittedBy: userID,
 		Status:      "pending_approval",
 	}
-	return submission, s.repo.CreateTaskSubmission(ctx, submission)
+	err = s.repo.CreateTaskSubmission(ctx, submission)
+	return submission, err
 }
 
 func (s *Service) broadcastFCMNotification(taskID uuid.UUID) {
@@ -622,6 +799,19 @@ func (s *Service) CreateReward(ctx context.Context, user model.User, req model.C
 	if err != nil {
 		return nil, err
 	}
+	_ = s.repo.LogActivity(ctx, model.ActivityEvent{
+		ChoreGroupID: user.ChoreGroupID,
+		UserID:       &user.ID,
+		UserUsername: user.Username,
+		ActivityType: "reward_created",
+		Title:        "Reward Created",
+		Description:  reward.Name,
+		Metadata: map[string]interface{}{
+			"reward_id": reward.ID.String(),
+			"name":      reward.Name,
+			"cost":      reward.Cost,
+		},
+	})
 	if needsAsync {
 		go func(r *model.Reward, on string) {
 			bgCtx := context.Background()
@@ -681,7 +871,23 @@ func (s *Service) DeleteReward(ctx context.Context, adminUser model.User, reward
 	if reward.IconURL != nil && *reward.IconURL != "" {
 		DeleteUploadedPhoto(*reward.IconURL)
 	}
-	return s.repo.DeleteReward(ctx, rewardID, adminUser.ChoreGroupID)
+	err = s.repo.DeleteReward(ctx, rewardID, adminUser.ChoreGroupID)
+	if err == nil {
+		_ = s.repo.LogActivity(ctx, model.ActivityEvent{
+			ChoreGroupID: adminUser.ChoreGroupID,
+			UserID:       &adminUser.ID,
+			UserUsername: adminUser.Username,
+			ActivityType: "reward_deleted",
+			Title:        reward.Name,
+			Description:  reward.Name,
+			Metadata: map[string]interface{}{
+				"reward_id": reward.ID.String(),
+				"name":      reward.Name,
+				"cost":      reward.Cost,
+			},
+		})
+	}
+	return err
 }
 
 func (s *Service) CreatePurchase(ctx context.Context, user model.User, req model.CreatePurchaseRequest) (*model.RewardPurchase, error) {
@@ -700,7 +906,24 @@ func (s *Service) CreatePurchase(ctx context.Context, user model.User, req model
 	if user.Role == "admin" {
 		purchase.Status = "approved"
 		purchase.Approvals = json.RawMessage("{}")
-		return purchase, s.repo.CreateRewardPurchase(ctx, purchase)
+		err = s.repo.CreateRewardPurchase(ctx, purchase)
+		if err == nil {
+			_ = s.repo.LogActivity(ctx, model.ActivityEvent{
+				ChoreGroupID: user.ChoreGroupID,
+				UserID:       &user.ID,
+				UserUsername: user.Username,
+				ActivityType: "reward_obtained",
+				Title:        "Reward Obtained",
+				Description:  reward.Name,
+				Metadata: map[string]interface{}{
+					"purchase_id": purchase.ID.String(),
+					"reward_id":   reward.ID.String(),
+					"name":        reward.Name,
+					"cost":        reward.Cost,
+				},
+			})
+		}
+		return purchase, err
 	}
 
 	if reward.Type == "individual" {
@@ -740,7 +963,24 @@ func (s *Service) CreatePurchase(ctx context.Context, user model.User, req model
 		purchase.Approvals = approvalsJSON
 	}
 
-	return purchase, s.repo.CreateRewardPurchase(ctx, purchase)
+	err = s.repo.CreateRewardPurchase(ctx, purchase)
+	if err == nil {
+		_ = s.repo.LogActivity(ctx, model.ActivityEvent{
+			ChoreGroupID: user.ChoreGroupID,
+			UserID:       &user.ID,
+			UserUsername: user.Username,
+			ActivityType: "reward_obtained",
+			Title:        "Reward Obtained",
+			Description:  reward.Name,
+			Metadata: map[string]interface{}{
+				"purchase_id": purchase.ID.String(),
+				"reward_id":   reward.ID.String(),
+				"name":        reward.Name,
+				"cost":        reward.Cost,
+			},
+		})
+	}
+	return purchase, err
 }
 
 
@@ -884,9 +1124,9 @@ func (s *Service) ResolveEmojiAsync(ctx context.Context, title string) string {
 	defer client.Close()
 
 	fastModels := []string{
-		"gemini-3.1-flash-lite",
-		"gemini-2.5-flash",
+		"gemini-2.5-flash-lite",
 		"gemini-flash-lite-latest",
+		"gemini-2.5-flash",
 	}
 
 	start := int(atomic.AddUint64(&aiModelCounter, 1) - 1) % len(fastModels)
@@ -1013,25 +1253,12 @@ func (s *Service) SendPushToKids(ctx context.Context, choregroupID uuid.UUID, ti
 	}
 }
 
-// FibonacciSequence defines standard coin tiers: 1, 2, 3, 5, 8, 13, 21, 34, 55, 89
-var FibonacciSequence = []int{1, 2, 3, 5, 8, 13, 21, 34, 55, 89}
-
-// SnapToFibonacci snaps an integer coin count to the nearest Fibonacci number (minimum 1).
+// SnapToFibonacci preserves backward-compatibility, returning the coin count directly (minimum 1).
 func SnapToFibonacci(val int) int {
 	if val <= 1 {
 		return 1
 	}
-	nearest := FibonacciSequence[0]
-	minDiff := absVal(val - nearest)
-
-	for _, fib := range FibonacciSequence {
-		diff := absVal(val - fib)
-		if diff < minDiff {
-			minDiff = diff
-			nearest = fib
-		}
-	}
-	return nearest
+	return val
 }
 
 func absVal(x int) int {
@@ -1075,17 +1302,9 @@ func CalculateRewardCoins(usd float64) int {
 }
 
 // CalculateChoreCoins converts estimated USD and/or suggested coins into a fair, motivating chore coin reward.
-// In ChoreCraft, chores use the Fibonacci sequence [1, 2, 3, 5, 8, 13, 21]:
-// - 1 coin: micro-task (< 2 mins, e.g. picking up a single item, putting a cup in the sink)
-// - 2 coins: quick chore (2-5 mins, e.g. wiping the dining table, taking out trash, making bed, feeding pet)
-// - 3 coins: small chore (5-10 mins, e.g. clearing & cleaning the whole dining table, emptying dishwasher, sweeping a room)
-// - 5 coins: moderate chore (10-20 mins, e.g. mopping floors, vacuuming living room, cleaning bathroom sink, folding laundry)
-// - 8 coins: substantial chore (20-35 mins, e.g. scrubbing bathtub, detailed room cleanup)
-// - 13 coins: large chore (35-60 mins, e.g. deep kitchen clean, yard work)
-// - 21 coins: major deep clean (1+ hours)
 func CalculateChoreCoins(usd float64, suggestedCoins int) int {
 	if suggestedCoins >= 1 {
-		return SnapToFibonacci(suggestedCoins)
+		return suggestedCoins
 	}
 	switch {
 	case usd <= 2.0:
@@ -1101,12 +1320,118 @@ func CalculateChoreCoins(usd float64, suggestedCoins int) int {
 	case usd <= 55.0:
 		return 13
 	default:
-		return 21
+		coins := int(math.Round(usd / 2.0))
+		if coins < 1 {
+			return 1
+		}
+		return coins
 	}
 }
 
+// EstimateChoreCoins uses Gemini to analyze the chore title and assign a fair coin reward.
+func (s *Service) EstimateChoreCoins(ctx context.Context, title string, customInstructions ...string) int {
+	cleanTitle := strings.TrimSpace(title)
+	if cleanTitle == "" {
+		return 3
+	}
+	if s.geminiAPIKey == "" {
+		return s.fallbackChoreCoins(cleanTitle)
+	}
+
+	client, err := genai.NewClient(ctx, option.WithAPIKey(s.geminiAPIKey))
+	if err != nil {
+		slog.Error("failed to create gemini client for coin estimation", "error", err)
+		return s.fallbackChoreCoins(cleanTitle)
+	}
+	defer client.Close()
+
+	customRulesText := ""
+	if len(customInstructions) > 0 && strings.TrimSpace(customInstructions[0]) != "" {
+		customRulesText = fmt.Sprintf("\nCRITICAL - HOUSEHOLD CUSTOM RULES (MUST STRICTLY OVERRIDE ALL DEFAULT TIERS):\n\"\"\"\n%s\n\"\"\"\nYou MUST strictly follow the household rules above when calculating coins! For example, if a rule specifies an exact point value (e.g. 'כל משימה היא 10 נקודות' or 'every task is 10 points'), you MUST award that EXACT point value (e.g. 10)!\n", strings.TrimSpace(customInstructions[0]))
+	}
+
+	prompt := `You are an expert chore valuation assistant for a family chore app.
+Analyze the effort, time, and difficulty required for this chore title and determine the most appropriate coin reward:
+- 1 coin: Micro-task (< 1-2 mins, extremely light effort, e.g. touching up an already mostly organized closet or shelf, emptying a blue recycling basket / paper bin 'לרוקן סל מחזור כחול / פח נייר', putting a dish/cup in the sink, picking up shoes, turning off lights, throwing away a small wrapper)
+- 2 coins: Quick chore (2-5 mins active effort, e.g. taking out the main household kitchen garbage bag, wiping dining table, making bed, feeding pet)
+- 3 coins: Small chore (5-10 mins, e.g. emptying dishwasher, sweeping room, tidying desk, watering plants)
+- 5 coins: Moderate chore (10-20 mins, e.g. vacuuming room/hallway, mopping floor, folding laundry, cleaning sink)
+- 8 coins: Substantial chore (20-35 mins, e.g. scrubbing bathroom, detailed room clean, cleaning oven)
+- 13 coins: Large chore (35-60 mins, e.g. deep kitchen clean, yard work, mowing lawn, washing car)
+- 20+ coins: Major deep clean (1+ hours, whole house deep clean, attic/garage cleanout)
+
+CRITICAL: Super light tasks that take barely a minute (like emptying a blue paper recycling basket, putting a cup in the sink, picking up shoes, or minor touch-up to an already organized closet) MUST be 1 coin!
+` + customRulesText + `
+Return ONLY a valid JSON object with the integer points: {"points": 1}
+Chore title: ` + cleanTitle
+
+	modelCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
+	defer cancel()
+
+	model := client.GenerativeModel("gemini-2.5-flash-lite")
+	model.ResponseMIMEType = "application/json"
+	temp := float32(0.1)
+	model.Temperature = &temp
+	maxTokens := int32(512)
+	model.MaxOutputTokens = &maxTokens
+
+	r, err := model.GenerateContent(modelCtx, genai.Text(prompt))
+	if err != nil || r == nil || len(r.Candidates) == 0 || len(r.Candidates[0].Content.Parts) == 0 {
+		return s.fallbackChoreCoins(cleanTitle)
+	}
+
+	part := r.Candidates[0].Content.Parts[0]
+	if txt, ok := part.(genai.Text); ok {
+		var result struct {
+			Points int `json:"points"`
+		}
+		if err := json.Unmarshal([]byte(strings.TrimSpace(string(txt))), &result); err == nil && result.Points > 0 {
+			return result.Points
+		}
+	}
+
+	return s.fallbackChoreCoins(cleanTitle)
+}
+
+func (s *Service) fallbackChoreCoins(title string) int {
+	lower := strings.ToLower(title)
+	// Micro tasks (1 coin) - super light effort (< 1-2 mins):
+	// Emptying recycling bins (סל מחזור / פח כחול / מחזור / סל ניירות), putting cup/dish in sink, picking up shoes, turning off lights
+	if strings.Contains(lower, "מחזור") || strings.Contains(lower, "recycle") || strings.Contains(lower, "recycling") ||
+		strings.Contains(lower, "פח כחול") || strings.Contains(lower, "סל כחול") || strings.Contains(lower, "פח נייר") ||
+		strings.Contains(lower, "סל נייר") || strings.Contains(lower, "פח קטן") || strings.Contains(lower, "פח חדר") ||
+		strings.Contains(lower, "פח שולחן") || strings.Contains(lower, "כוס") || strings.Contains(lower, "צלחת") ||
+		strings.Contains(lower, "נעליים") || strings.Contains(lower, "cup") || strings.Contains(lower, "shoes") || strings.Contains(lower, "light") {
+		return 1
+	}
+	// Quick chores (2 coins) - active effort taking 2-5 mins:
+	// Main household trash (זבל / אשפה), making bed, feeding pet, wiping dining table
+	if strings.Contains(lower, "זבל") || strings.Contains(lower, "אשפה") || strings.Contains(lower, "מיטה") || strings.Contains(lower, "להאכיל") ||
+		strings.Contains(lower, "trash") || strings.Contains(lower, "garbage") || strings.Contains(lower, "bed") || strings.Contains(lower, "feed") {
+		return 2
+	}
+	// Substantial chores (8 coins)
+	if strings.Contains(lower, "אמבטיה") || strings.Contains(lower, "שירותים") || strings.Contains(lower, "לגזום") || strings.Contains(lower, "קרטון") ||
+		strings.Contains(lower, "bathroom") || strings.Contains(lower, "bathtub") || strings.Contains(lower, "prune") {
+		return 8
+	}
+	// Large / Major (13 - 21 coins)
+	if strings.Contains(lower, "יסודי") || strings.Contains(lower, "חצר") || strings.Contains(lower, "מכונית") || strings.Contains(lower, "רכב") ||
+		strings.Contains(lower, "yard") || strings.Contains(lower, "deep clean") || strings.Contains(lower, "garage") ||
+		(strings.Contains(lower, "car") && !strings.Contains(lower, "carpet") && !strings.Contains(lower, "carry")) {
+		return 13
+	}
+	// Moderate (5 coins)
+	if strings.Contains(lower, "לשאוב") || strings.Contains(lower, "לשטוף") || strings.Contains(lower, "כביסה") || strings.Contains(lower, "ספונג'ה") ||
+		strings.Contains(lower, "vacuum") || strings.Contains(lower, "mop") || strings.Contains(lower, "laundry") || strings.Contains(lower, "carpet") {
+		return 5
+	}
+	// Default small/moderate
+	return 3
+}
+
 // AnalyzeImageForChoreOrReward uses Gemini Vision to classify an image as a Chore or Reward, estimate USD value, and calculate coins.
-func (s *Service) AnalyzeImageForChoreOrReward(ctx context.Context, imageData []byte, mimeType string, iconURL string, targetLang string, mode string) (*model.AIImageAnalysisResult, error) {
+func (s *Service) AnalyzeImageForChoreOrReward(ctx context.Context, imageData []byte, mimeType string, iconURL string, targetLang string, mode string, customInstructions ...string) (*model.AIImageAnalysisResult, error) {
 	if s.geminiAPIKey == "" {
 		return nil, errors.New("Gemini API key not configured")
 	}
@@ -1163,61 +1488,63 @@ Return ONLY a valid JSON object:
 
 Analyze this photo to determine if it shows a household CHORE to do.
 
-Case 1 - If NO chore is visible (e.g. room is already clean, nothing to clean/tidy, or unrelated subject):
+Case 1 - If NO chore is visible, OR if the space, closet, wardrobe, drawer, room, or surface is ALREADY ORGANIZED, NEAT, OR CLEAN (e.g. an already organized closet with items in place on shelves, an already clean room/counter, nothing substantial to clean/tidy):
 - Set "is_valid": false
-- Set "invalid_reason" to a friendly 1-sentence explanation strictly in %s explaining why no chore is needed (e.g. telling a child gently in %s that everything looks clean or there is nothing to tidy here).
+- Set "invalid_reason" to a friendly 1-sentence explanation strictly in %s explaining that this area is already organized and clean (e.g. 'הארון/האזור כבר מסודר ונקי, אין צורך לסדר כעת ואין נקודות על משהו שכבר מסודר!') so no chore or points are needed.
 - Set "title": ""
 - Set "description": ""
 
-Case 2 - If a chore is visible:
+Case 2 - If a REAL chore is visible (genuine disorder, mess, dirt, or clutter needing real work):
 - Set "is_valid": true
 - Set "invalid_reason": ""
 - "item_type": "chore"
 - "category": "personal" (IMPORTANT: All chores detected from photos are rewarding household tasks for coins. NEVER set category to "mandatory". Mandatory tasks are only set manually by parents).
 - "title": Action to take strictly in %s with a leading emoji (e.g. '🧼 לנקות את שולחן האוכל', '🧹 לטאטא את הרצפה', '🍽️ להוציא כלים מהמדיח', '🧺 לקפל כביסה', '🧸 לסדר את המשחקים').
 - "description": Short description strictly in %s describing what needs to be done.
-- "points_reward": Coin reward from the Fibonacci scale [1, 2, 3, 5, 8, 13, 21] based on real effort and time:
-  * 1 coin: Micro-task (< 2 mins, e.g. picking up a single toy or stray pair of shoes, putting a cup in sink).
-  * 2 coins: Quick task (2-5 mins, e.g. wiping the dining table, taking out trash, making bed, feeding pet).
-  * 3 coins: Small chore (5-10 mins, e.g. clearing and wiping the whole dining table, emptying dishwasher, sweeping a room).
-  * 5 coins: Moderate chore (10-20 mins, e.g. mopping floors, vacuuming living room, cleaning bathroom sink, folding laundry).
-  * 8 coins: Substantial chore (20-35 mins, e.g. scrubbing bathtub/shower, detailed room cleanup).
+- "points_reward": Integer coin reward based on real effort and time:
+  * CRITICAL RULE FOR ALREADY ORGANIZED / LIGHT TOUCH-UPS: If something is already mostly clean or organized with only tiny/minimal touch-ups, it must NOT receive many points! It should receive at most 1 coin (micro-task). Never give 2+ coins if the area/closet is already organized or neat.
+  * 1 coin: Micro-task (< 1-2 mins, very light effort, e.g. touching up an already mostly organized closet or shelf, emptying a blue recycling basket / paper bin 'לרוקן סל מחזור כחול / פח נייר', putting a cup/dish in the sink, picking up stray shoes or a single toy, throwing away a wrapper).
+  * 2 coins: Quick task (2-5 mins of active effort, e.g. taking out the main household garbage bag to the dumpster, wiping down the dining table, making bed, feeding a pet).
+  * 3 coins: Small chore (5-10 mins, e.g. clearing & cleaning the whole dining table, emptying dishwasher, sweeping a room, organizing a moderately messy closet/shelf with scattered items).
+  * 5 coins: Moderate chore (10-20 mins, e.g. mopping floors, vacuuming living room, cleaning bathroom sink, folding laundry, organizing a genuinely disordered closet).
+  * 8 coins: Substantial chore (20-35 mins, e.g. scrubbing bathtub/shower, detailed room cleanup, deep closet reorganization).
   * 13 coins: Large chore (35-60 mins, e.g. deep kitchen clean, yard work).
-  * 21 coins: Major deep clean (1+ hours).
-  NOTE: Everyday tasks taking a few minutes (such as cleaning/wiping the dining table, taking out trash, or loading dishes) are NOT trivial and must receive at least 2 or 3 coins!
+  * 20+ coins: Major deep clean (1+ hours).
+  NOTE: Very quick tasks taking barely a minute (such as emptying a blue paper recycling basket 'סל מחזור כחול', picking up a shoe, or putting a cup in the sink) require minimal effort and MUST receive 1 coin! Standard chores taking 2-5 minutes of active effort (like taking out the main heavy kitchen garbage or wiping the dining table) receive 2 coins. If an item or closet is already organized, do NOT give multiple points!
 - "estimated_usd": Estimated market value in USD (approx. $1.50 - $2.00 per coin, e.g. $4.0 - $6.0 for cleaning dining table).
 - "valuation_reasoning": Brief reasoning strictly in %s explaining the effort, estimated duration in minutes, and why this coin reward was chosen.
 - "suggested_emoji": A fitting emoji for the chore (e.g. 🧼, 🧹, 🍽️, 🧺, 🛏️, 🧸).
 
 Return ONLY a valid JSON object:
-{"is_valid":true,"invalid_reason":"","item_type":"chore","title":"🧼 לנקות את שולחן האוכל","description":"לפנות ולנקות את שולחן האוכל","category":"personal","points_reward":2,"estimated_usd":4.0,"valuation_reasoning":"משימה של כמה דקות (2 מטבעות)","suggested_emoji":"🧼"}`, targetLang, targetLang, targetLang, targetLang, targetLang, targetLang, targetLang)
+{"is_valid":true,"invalid_reason":"","item_type":"chore","title":"🧼 לנקות את שולחן האוכל","description":"לפנות ולנקות את שולחן האוכל","category":"personal","points_reward":2,"estimated_usd":4.0,"valuation_reasoning":"משימה של כמה דקות (2 מטבעות)","suggested_emoji":"🧼"}`, targetLang, targetLang, targetLang, targetLang, targetLang, targetLang)
 	} else {
 		prompt = fmt.Sprintf(`CRITICAL REQUIREMENT: You MUST write ALL user-facing text strictly in %s. Do NOT output English or any other language unless %s is English.
 
 Analyze this photo to determine if it shows a household CHORE to do or a REWARD item.
 
-Case 1 - If NO chore or reward is visible (e.g. room is already clean, nothing to clean/tidy, or unrelated subject):
+Case 1 - If NO chore or reward is visible, OR if the space, closet, wardrobe, drawer, room, or surface is ALREADY ORGANIZED, NEAT, OR CLEAN (nothing substantial to clean/tidy):
 - Set "is_valid": false
-- Set "invalid_reason" to a friendly 1-sentence explanation strictly in %s explaining why no chore or reward is detected.
+- Set "invalid_reason" to a friendly 1-sentence explanation strictly in %s explaining that this area is already organized and clean (e.g. 'הארון/האזור כבר מסודר ונקי, אין צורך לסדר כעת ואין נקודות על משהו שכבר מסודר!') so no chore is detected.
 - Set "title": ""
 - Set "description": ""
 
-Case 2 - If a CHORE is visible:
+Case 2 - If a REAL CHORE is visible (meaning real disorder, mess, or dirt needing actual work):
 - Set "is_valid": true
 - Set "invalid_reason": ""
 - "item_type": "chore"
 - "category": "personal" (IMPORTANT: All chores detected from photos are rewarding household tasks for coins. NEVER set category to "mandatory". Mandatory tasks are only set manually by parents).
 - "title": Action to take strictly in %s with a leading emoji (e.g. '🧼 לנקות את שולחן האוכל', '🧹 לטאטא את הרצפה', '🍽️ להוציא כלים מהמדיח').
 - "description": Short description strictly in %s.
-- "points_reward": Coin reward from the Fibonacci scale [1, 2, 3, 5, 8, 13, 21] based on real effort and time:
-  * 1 coin: Micro-task (< 2 mins, e.g. picking up a single toy).
-  * 2 coins: Quick task (2-5 mins, e.g. wiping the dining table, taking out trash, making bed).
+- "points_reward": Integer coin reward based on real effort and time:
+  * CRITICAL RULE FOR ALREADY ORGANIZED / LIGHT TOUCH-UPS: If something is already mostly clean or organized with only tiny/minimal touch-ups, it must NOT receive many points! It should receive at most 1 coin (micro-task). Never give 2+ coins if the area/closet is already organized or neat.
+  * 1 coin: Micro-task (< 1-2 mins, very light effort, e.g. touching up an already mostly organized closet or shelf, emptying a blue recycling basket / paper bin 'לרוקן סל מחזור כחול / פח נייר', putting a dish/cup in sink, picking up a single toy).
+  * 2 coins: Quick task (2-5 mins active effort, e.g. taking out the main household garbage bag, wiping dining table, making bed).
   * 3 coins: Small chore (5-10 mins, e.g. clearing & cleaning the whole dining table, emptying dishwasher).
   * 5 coins: Moderate chore (10-20 mins, e.g. mopping floors, vacuuming).
   * 8 coins: Substantial chore (20-35 mins).
   * 13 coins: Large chore (35-60 mins).
-  * 21 coins: Major deep clean (1+ hours).
-  NOTE: Everyday tasks taking a few minutes (such as cleaning/wiping the dining table) are NOT trivial and must receive at least 2 or 3 coins!
+  * 20+ coins: Major deep clean (1+ hours).
+  NOTE: Very quick tasks taking barely a minute (such as emptying a blue paper recycling basket 'סל מחזור כחול' or touching up an already neat area) require minimal effort and MUST receive 1 coin! Standard chores taking 2-5 minutes of active effort receive 2 coins.
 - "estimated_usd": Estimated market value in USD (approx. $1.50 - $2.00 per coin).
 - "valuation_reasoning": Brief reasoning strictly in %s explaining the effort, estimated duration in minutes, and why this coin reward was chosen.
 - "suggested_emoji": A fitting emoji for the chore (e.g. 🧼, 🧹, 🍽️).
@@ -1237,44 +1564,66 @@ Return ONLY a valid JSON object:
 {"is_valid":true,"invalid_reason":"","item_type":"chore","title":"...","description":"...","category":"personal","points_reward":2,"estimated_usd":4.0,"valuation_reasoning":"...","suggested_emoji":"..."}`, targetLang, targetLang, targetLang, targetLang, targetLang, targetLang, targetLang, targetLang, targetLang)
 	}
 
-	fastModels := []string{
-		"gemini-3.1-flash-lite",
-		"gemini-2.5-flash",
+	if len(customInstructions) > 0 && strings.TrimSpace(customInstructions[0]) != "" {
+		prompt += fmt.Sprintf(`
+
+CRITICAL - HOUSEHOLD CUSTOM RULES & INSTRUCTIONS (MUST STRICTLY OVERRIDE ALL DEFAULT TIERS):
+The parents/admins of this household have defined the following specific rules for this home:
+"""
+%s
+"""
+You MUST strictly obey and apply these household rules above when determining "points_reward"!
+- If a rule states an exact point value for chores (e.g. 'כל משימה היא 10 נקודות' / 'every task is 10 points'), you MUST award that EXACT point value (e.g. 10 coins) for "points_reward"! Do NOT change it to 8 or any other number!
+- If they specify having a dishwasher, washing dishes takes significantly less time and effort (1-2 coins).
+- If they set custom coin calculation rates (e.g. 3 minutes = 1 coin), calculate the points directly using their rate!
+`, strings.TrimSpace(customInstructions[0]))
 	}
 
-	// Rotate starting model between the fastest models to balance quota evenly
-	start := int(atomic.AddUint64(&aiModelCounter, 1) - 1) % len(fastModels)
-	modelsToTry := make([]string, len(fastModels))
-	for i := range fastModels {
-		modelsToTry[i] = fastModels[(start+i)%len(fastModels)]
+	type modelAttempt struct {
+		name    string
+		timeout time.Duration
 	}
+	modelsToTry := []modelAttempt{
+		{name: "gemini-2.5-flash", timeout: 25 * time.Second},
+		{name: "gemini-2.5-flash-lite", timeout: 15 * time.Second},
+	}
+
+	// Compress/downscale large camera photos (>300KB) to max 1024px for lightning-fast AI analysis
+	compressedBytes, compressedFmt := compressImageForAI(imageData)
 
 	var resp *genai.GenerateContentResponse
 	var errMsgs []string
 	var lastErr error
-	for _, modelName := range modelsToTry {
-		modelCtx, cancel := context.WithTimeout(ctx, 28*time.Second)
-		genModel := client.GenerativeModel(modelName)
+	for _, attempt := range modelsToTry {
+		modelCtx, cancel := context.WithTimeout(ctx, attempt.timeout)
+		genModel := client.GenerativeModel(attempt.name)
 		genModel.ResponseMIMEType = "application/json"
 		temp := float32(0.1)
 		genModel.Temperature = &temp
-		maxTokens := int32(1024)
+		maxTokens := int32(4096)
 		genModel.MaxOutputTokens = &maxTokens
-		r, err := genModel.GenerateContent(modelCtx, genai.ImageData(imageFormat, imageData), genai.Text(prompt))
+		r, err := genModel.GenerateContent(modelCtx, genai.ImageData(compressedFmt, compressedBytes), genai.Text(prompt))
 		cancel()
 		if err == nil && r != nil && len(r.Candidates) > 0 && len(r.Candidates[0].Content.Parts) > 0 {
-			resp = r
-			lastErr = nil
-			break
+			var checkSb strings.Builder
+			for _, p := range r.Candidates[0].Content.Parts {
+				if txt, ok := p.(genai.Text); ok {
+					checkSb.WriteString(string(txt))
+				}
+			}
+			txt := strings.TrimSpace(checkSb.String())
+			sIdx := strings.Index(txt, "{")
+			eIdx := strings.LastIndex(txt, "}")
+			if sIdx != -1 && eIdx > sIdx {
+				resp = r
+				lastErr = nil
+				break
+			}
+			errMsgs = append(errMsgs, fmt.Sprintf("%s (incomplete json, finish: %v)", attempt.name, r.Candidates[0].FinishReason))
 		}
 		if err != nil {
 			lastErr = err
-			errMsgs = append(errMsgs, fmt.Sprintf("%s (%v)", modelName, err))
-			// If it timed out, do not make another attempt to avoid compounding Google's rate queue
-			lowerErr := strings.ToLower(err.Error())
-			if strings.Contains(lowerErr, "deadline exceeded") || strings.Contains(lowerErr, "timeout") {
-				break
-			}
+			errMsgs = append(errMsgs, fmt.Sprintf("%s (%v)", attempt.name, err))
 		}
 	}
 
@@ -1286,6 +1635,8 @@ Return ONLY a valid JSON object:
 		for _, m := range errMsgs {
 			errStr += " " + m
 		}
+
+		slog.Error("[AI GEMINI ERROR DETAILED]", "lastErr", lastErr, "allErrs", errMsgs)
 
 		isHebrew := strings.Contains(targetLang, "Hebrew") || strings.Contains(targetLang, "עברית")
 		lower := strings.ToLower(errStr)
@@ -1320,6 +1671,21 @@ Return ONLY a valid JSON object:
 
 	startIdx := strings.Index(jsonStr, "{")
 	endIdx := strings.LastIndex(jsonStr, "}")
+	if startIdx != -1 && (endIdx == -1 || endIdx <= startIdx) {
+		// Attempt simple auto-repair by closing unterminated string/brackets
+		repaired := jsonStr[startIdx:]
+		if strings.Count(repaired, `"`)%2 != 0 {
+			repaired += `"`
+		}
+		repaired += "\n}"
+		var testRes model.AIImageAnalysisResult
+		if err := json.Unmarshal([]byte(repaired), &testRes); err == nil && (testRes.Title != "" || testRes.Description != "" || testRes.InvalidReason != "") {
+			jsonStr = repaired
+			startIdx = 0
+			endIdx = len(repaired) - 1
+		}
+	}
+
 	if startIdx == -1 || endIdx == -1 || endIdx <= startIdx {
 		slog.Error("failed to find json in gemini response", "raw", jsonStr)
 		return nil, errors.New("AI could not extract valid task details from this photo. Please try again! 📸")
@@ -1352,6 +1718,54 @@ Return ONLY a valid JSON object:
 	return &res, nil
 }
 
+// compressImageForAI optimizes and downscales camera photos (>300KB) to max 1024px for fast AI vision processing.
+func compressImageForAI(imageData []byte) ([]byte, string) {
+	if len(imageData) <= 300*1024 {
+		return imageData, "jpeg"
+	}
+	img, fmtName, err := image.Decode(bytes.NewReader(imageData))
+	if err != nil {
+		return imageData, "jpeg"
+	}
+
+	bounds := img.Bounds()
+	width := bounds.Dx()
+	height := bounds.Dy()
+	maxDim := 1024
+
+	if width <= maxDim && height <= maxDim {
+		var buf bytes.Buffer
+		if err := jpeg.Encode(&buf, img, &jpeg.Options{Quality: 82}); err == nil {
+			return buf.Bytes(), "jpeg"
+		}
+		return imageData, fmtName
+	}
+
+	var newWidth, newHeight int
+	if width > height {
+		newWidth = maxDim
+		newHeight = int(float64(height) * float64(maxDim) / float64(width))
+	} else {
+		newHeight = maxDim
+		newWidth = int(float64(width) * float64(maxDim) / float64(height))
+	}
+
+	dst := image.NewRGBA(image.Rect(0, 0, newWidth, newHeight))
+	for y := 0; y < newHeight; y++ {
+		srcY := y * height / newHeight
+		for x := 0; x < newWidth; x++ {
+			srcX := x * width / newWidth
+			dst.Set(x, y, img.At(bounds.Min.X+srcX, bounds.Min.Y+srcY))
+		}
+	}
+
+	var buf bytes.Buffer
+	if err := jpeg.Encode(&buf, dst, &jpeg.Options{Quality: 82}); err == nil {
+		return buf.Bytes(), "jpeg"
+	}
+	return imageData, fmtName
+}
+
 // WheelSliceDefinition defines an individual slice on the lucky wheel.
 type WheelSliceDefinition struct {
 	Index  int    `json:"index"`
@@ -1364,7 +1778,7 @@ var WheelSlices = []WheelSliceDefinition{
 	{Index: 0, Label: "+1 Coin", Type: "individual", Amount: 1},
 	{Index: 1, Label: "+1 Co-op Coin", Type: "cooperative", Amount: 1},
 	{Index: 2, Label: "+2 Coins", Type: "individual", Amount: 2},
-	{Index: 3, Label: "0 Coins", Type: "none", Amount: 0},
+	{Index: 3, Label: "🎁 Surprise", Type: "surprise", Amount: 0},
 	{Index: 4, Label: "+1 Coin", Type: "individual", Amount: 1},
 	{Index: 5, Label: "+2 Co-op Coins", Type: "cooperative", Amount: 2},
 	{Index: 6, Label: "+2 Coins", Type: "individual", Amount: 2},
@@ -1387,25 +1801,46 @@ func (s *Service) GetDailyBonusStatus(ctx context.Context, choregroupID, userID 
 	}
 
 	spinsAvail := 0
-	if !user.HasClaimedWelcomeSpin && user.Role == "user" {
-		spinsAvail++
-	}
-	dailySpins := progress.SpinsEarned - progress.SpinsUsed
-	if dailySpins > 0 {
-		spinsAvail += dailySpins
+	if user.Role == "user" {
+		totalSpins := progress.SpinsEarned
+		spinsAvail = totalSpins - progress.SpinsUsed
+		if spinsAvail < 0 {
+			spinsAvail = 0
+		}
 	}
 
 	return &model.DailyBonusStatusResponse{
 		Date:                  progress.Date.Format("2006-01-02"),
 		TasksCompleted:        progress.TasksCompleted,
-		TargetWheel:           3,
-		TargetDouble:          5,
+		TargetWheel:           1,
+		TargetDouble:          0,
+		TargetSpin2:           4,
+		TargetSpin3:           7,
+		TargetSpin4:           10,
+		TargetSurprise:        10,
 		SpinsAvailable:        spinsAvail,
-		WheelUnlocked:         progress.TasksCompleted >= 3 || (!user.HasClaimedWelcomeSpin && user.Role == "user"),
+		WheelUnlocked:         user.Role == "user",
 		DoubleCoinsActive:     progress.DoubleCoinsActive,
 		DoubleCoinsUsed:       progress.DoubleCoinsUsed,
+		SurpriseClaimed:       progress.SurpriseClaimed,
 		HasClaimedWelcomeSpin: user.HasClaimedWelcomeSpin,
 	}, nil
+}
+
+// ClaimDailySurprise claims the 10-task daily milestone surprise for a kid user.
+func (s *Service) ClaimDailySurprise(ctx context.Context, choregroupID, userID uuid.UUID) (*model.DailySurpriseResponse, error) {
+	user, err := s.repo.GetUserByID(ctx, userID)
+	if err != nil {
+		return nil, err
+	}
+	if user.ChoreGroupID != choregroupID {
+		return nil, ErrForbidden
+	}
+	if user.Role != "user" {
+		return nil, errors.New("only kid users can claim the daily surprise")
+	}
+
+	return s.repo.ClaimDailySurprise(ctx, choregroupID, userID)
 }
 
 // SpinWheel executes a spin for a kid user, picking a random slice and persisting points/spin consumption.
@@ -1417,7 +1852,133 @@ func (s *Service) SpinWheel(ctx context.Context, choregroupID uuid.UUID, user mo
 	idx := rand.IntN(len(WheelSlices))
 	chosenSlice := WheelSlices[idx]
 
-	return s.repo.ClaimWheelSpin(ctx, choregroupID, user.ID, chosenSlice.Index, chosenSlice.Label, chosenSlice.Amount, chosenSlice.Type)
+	resp, err := s.repo.ClaimWheelSpin(ctx, choregroupID, user.ID, chosenSlice.Index, chosenSlice.Label, chosenSlice.Amount, chosenSlice.Type)
+	if err == nil && resp != nil {
+		desc := fmt.Sprintf("%s spun the Lucky Wheel and won: %s", user.Username, resp.Label)
+		if resp.SurpriseBackground != nil {
+			desc = fmt.Sprintf("%s spun the Lucky Wheel and won surprise points theme: %s!", user.Username, *resp.SurpriseBackground)
+		}
+		metadata := map[string]interface{}{
+			"label":       resp.Label,
+			"reward_type": resp.RewardType,
+			"amount":      resp.Amount,
+		}
+		if resp.SurpriseBackground != nil {
+			metadata["surprise_background"] = *resp.SurpriseBackground
+		}
+		_ = s.repo.LogActivity(ctx, model.ActivityEvent{
+			ChoreGroupID: choregroupID,
+			UserID:       &user.ID,
+			UserUsername: user.Username,
+			ActivityType: "wheel_spin",
+			Title:        "Wheel Spin",
+			Description:  desc,
+			Metadata:     metadata,
+		})
+	}
+	return resp, err
+}
+
+// UpdateUserPointsBackground updates the active points background theme for a user.
+func (s *Service) UpdateUserPointsBackground(ctx context.Context, adminOrSelf model.User, targetUserID uuid.UUID, background string) error {
+	if adminOrSelf.Role != "admin" && adminOrSelf.ID != targetUserID {
+		return ErrForbidden
+	}
+	targetUser, err := s.repo.GetUserByID(ctx, targetUserID)
+	if err != nil {
+		return err
+	}
+	if targetUser.ChoreGroupID != adminOrSelf.ChoreGroupID {
+		return ErrForbidden
+	}
+
+	isAdmin := adminOrSelf.Role == "admin" || targetUser.Role == "admin"
+	return s.repo.UpdateUserPointsBackground(ctx, targetUserID, background, isAdmin)
+}
+
+// UpdateUserAvatarFrame updates the equipped avatar frame for a user.
+func (s *Service) UpdateUserAvatarFrame(ctx context.Context, adminOrSelf model.User, targetUserID uuid.UUID, frame string) error {
+	if adminOrSelf.Role != "admin" && adminOrSelf.ID != targetUserID {
+		return ErrForbidden
+	}
+	targetUser, err := s.repo.GetUserByID(ctx, targetUserID)
+	if err != nil {
+		return err
+	}
+	if targetUser.ChoreGroupID != adminOrSelf.ChoreGroupID {
+		return ErrForbidden
+	}
+
+	isAdmin := adminOrSelf.Role == "admin" || targetUser.Role == "admin"
+	return s.repo.UpdateUserAvatarFrame(ctx, targetUserID, frame, isAdmin)
+}
+
+// GetRecentHistory fetches the most recent activities (e.g. 3) for the household or user.
+func (s *Service) GetRecentHistory(ctx context.Context, choregroupID, requestingUserID uuid.UUID, isAdmin bool) ([]model.ActivityEvent, error) {
+	_, _ = s.repo.PurgeOldActivityHistory(ctx, 7)
+	_ = s.repo.BackfillInitialActivityHistory(ctx)
+	var filterUserID *uuid.UUID
+	if !isAdmin {
+		filterUserID = &requestingUserID
+	}
+	return s.repo.GetRecentActivity(ctx, choregroupID, filterUserID, 3)
+}
+
+// GetHistory fetches the full activity history for the specified week / filter params (7-day retention).
+func (s *Service) GetHistory(ctx context.Context, choregroupID, requestingUserID uuid.UUID, isAdmin bool, filter model.HistoryFilterParams) (*model.HistoryResponse, error) {
+	_, _ = s.repo.PurgeOldActivityHistory(ctx, 7)
+	_ = s.repo.BackfillInitialActivityHistory(ctx)
+	if !isAdmin {
+		// Kids can only view their own activity history
+		filter.UserID = &requestingUserID
+	}
+	events, totalCount, err := s.repo.GetActivityHistory(ctx, choregroupID, filter)
+	if err != nil {
+		return nil, err
+	}
+
+	startDateStr := ""
+	if filter.StartDate != nil {
+		startDateStr = filter.StartDate.Format(time.RFC3339)
+	}
+	endDateStr := ""
+	if filter.EndDate != nil {
+		endDateStr = filter.EndDate.Format(time.RFC3339)
+	}
+
+	return &model.HistoryResponse{
+		Events:     events,
+		TotalCount: totalCount,
+		StartDate:  startDateStr,
+		EndDate:    endDateStr,
+	}, nil
+}
+
+// RunDataCleanup runs comprehensive background maintenance:
+// 1. Purges activity history older than 7 days
+// 2. Purges orphaned uploads older than 1 hour that are no longer referenced by any user avatar, task, or reward
+// 3. Purges stale rejected task submissions older than 7 days and orphaned push subscriptions
+func (s *Service) RunDataCleanup(ctx context.Context) (map[string]int, error) {
+	stats := make(map[string]int)
+
+	historyCount, err := s.repo.PurgeOldActivityHistory(ctx, 7)
+	if err == nil {
+		stats["history_purged"] = int(historyCount)
+	}
+
+	uploadsCount, err := s.repo.PurgeOrphanedUploads(ctx, 1*time.Hour)
+	if err == nil {
+		stats["orphaned_uploads_purged"] = uploadsCount
+	} else {
+		slog.Error("failed to purge orphaned uploads", "error", err)
+	}
+
+	staleCount, err := s.repo.PurgeStaleSubmissionsAndPush(ctx)
+	if err == nil {
+		stats["stale_submissions_purged"] = staleCount
+	}
+
+	return stats, nil
 }
 
 

@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"net/http"
 	"os"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -65,8 +66,39 @@ func main() {
 }
 
 func setupRouter(dbpool *pgxpool.Pool, cfg *config.Config) *chi.Mux {
+	logger := slog.New(slog.NewJSONHandler(os.Stdout, nil))
 	repo := repository.New(dbpool)
+
+	// Migrate any existing disk uploads to PostgreSQL repository
+	if migratedCount, err := repo.MigrateDiskUploadsToDB(context.Background()); err != nil {
+		logger.Error("failed to migrate disk uploads to database", "error", err)
+	} else if migratedCount > 0 {
+		logger.Info("migrated disk upload files to PostgreSQL database repository", "count", migratedCount)
+	}
+
 	svc := service.New(repo, cfg.GeminiAPIKey, cfg.VAPIDPublicKey, cfg.VAPIDPrivateKey, cfg.VAPIDContact)
+
+	// Execute comprehensive data & upload asset cleanup on server startup
+	if stats, err := svc.RunDataCleanup(context.Background()); err != nil {
+		logger.Error("failed to run initial data cleanup", "error", err)
+	} else {
+		logger.Info("completed initial data and asset cleanup", "stats", stats)
+	}
+
+	// Periodic background maintenance ticker (every 6 hours)
+	go func() {
+		ctx := context.Background()
+		ticker := time.NewTicker(6 * time.Hour)
+		defer ticker.Stop()
+		for range ticker.C {
+			if stats, err := svc.RunDataCleanup(ctx); err != nil {
+				logger.Error("background data cleanup maintenance error", "error", err)
+			} else {
+				logger.Info("completed background data cleanup maintenance", "stats", stats)
+			}
+		}
+	}()
+
 	api := handler.New(svc, cfg.JWTSecret, cfg.VAPIDPublicKey)
 
 	r := chi.NewRouter()

@@ -75,6 +75,38 @@
           </svg>
           <span class="header-wheel-badge" id="header-wheel-badge" style="display: none;">1</span>
         </button>
+        <!-- Household Activity History Dropdown -->
+        <div class="notification-dropdown-container" id="header-history-center" style="display: none;">
+          <button class="btn-notification-trigger" id="history-trigger-btn" onclick="toggleHistoryDropdown(event)" title="Activity History" aria-label="Activity History">
+            <svg class="history-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <circle cx="12" cy="12" r="10"></circle>
+              <polyline points="12 6 12 12 16 14"></polyline>
+            </svg>
+          </button>
+          <div class="notification-dropdown-menu history-dropdown-menu" id="history-dropdown-menu">
+            <div class="notification-dropdown-header history-dropdown-header">
+              <div style="display: flex; align-items: center; justify-content: space-between;">
+                <h4 style="display: flex; align-items: center; gap: 6px;">
+                  <span>📜</span>
+                  <span>Activity History</span>
+                </h4>
+                <span style="font-size: 0.75rem; color: var(--text-muted); font-weight: 500;">Recent 3</span>
+              </div>
+            </div>
+            <div class="notification-dropdown-body" id="history-dropdown-list">
+              <div class="dropdown-item">
+                <div class="dropdown-item-content">
+                  <span>Loading recent activity...</span>
+                </div>
+              </div>
+            </div>
+            <div class="history-dropdown-footer">
+              <button type="button" class="btn-history-show-more" onclick="openFullHistoryModal(event)">
+                Show more...
+              </button>
+            </div>
+          </div>
+        </div>
         <!-- Notification Dropdown -->
         <div class="notification-dropdown-container" id="header-notification-center" style="display: none;">
           <button class="btn-notification-trigger" id="notification-trigger-btn" onclick="toggleNotificationDropdown(event)">
@@ -304,20 +336,35 @@
                     <div class="daily-bonus-fill" id="daily-bonus-fill-bar" style="width: 0%;"></div>
                   </div>
                   <div class="daily-bonus-milestones">
-                    <div class="bonus-milestone" id="bonus-step-1" data-step="1">
-                      <div class="milestone-dot">1</div>
+                    <div class="bonus-milestone milestone-wheel" id="bonus-step-1" data-step="1" title="Spin Lucky Wheel" onclick="openWheelModal('bar')">
+                      <div class="milestone-dot">🎡</div>
                     </div>
                     <div class="bonus-milestone" id="bonus-step-2" data-step="2">
                       <div class="milestone-dot">2</div>
                     </div>
-                    <div class="bonus-milestone milestone-wheel" id="bonus-step-3" data-step="3" title="Spin Lucky Wheel" onclick="openWheelModal('bar')">
+                    <div class="bonus-milestone" id="bonus-step-3" data-step="3">
+                      <div class="milestone-dot">3</div>
+                    </div>
+                    <div class="bonus-milestone milestone-wheel" id="bonus-step-4" data-step="4" title="Spin Lucky Wheel" onclick="openWheelModal('bar')">
                       <div class="milestone-dot">🎡</div>
                     </div>
-                    <div class="bonus-milestone" id="bonus-step-4" data-step="4">
-                      <div class="milestone-dot">4</div>
+                    <div class="bonus-milestone" id="bonus-step-5" data-step="5">
+                      <div class="milestone-dot">5</div>
                     </div>
-                    <div class="bonus-milestone milestone-multiplier" id="bonus-step-5" data-step="5" title="2x Coins Multiplier">
-                      <div class="milestone-dot">2×🪙</div>
+                    <div class="bonus-milestone" id="bonus-step-6" data-step="6">
+                      <div class="milestone-dot">6</div>
+                    </div>
+                    <div class="bonus-milestone milestone-wheel" id="bonus-step-7" data-step="7" title="Spin Lucky Wheel" onclick="openWheelModal('bar')">
+                      <div class="milestone-dot">🎡</div>
+                    </div>
+                    <div class="bonus-milestone" id="bonus-step-8" data-step="8">
+                      <div class="milestone-dot">8</div>
+                    </div>
+                    <div class="bonus-milestone" id="bonus-step-9" data-step="9">
+                      <div class="milestone-dot">9</div>
+                    </div>
+                    <div class="bonus-milestone milestone-wheel" id="bonus-step-10" data-step="10" title="Spin Lucky Wheel" onclick="openWheelModal('bar')">
+                      <div class="milestone-dot">🎡</div>
                     </div>
                   </div>
                 </div>
@@ -496,26 +543,20 @@
                 id="chore-points-coin">🐱</span></label>
             <div class="custom-select-container" id="points-select-container">
               <div class="custom-select-trigger" id="points-select-trigger">
-                <span>+5 <span class="points-coin" id="chore-points-coin">🐱</span></span>
+                <span>✨ AI Estimate <span class="points-coin">🤖</span></span>
                 <span class="arrow">▼</span>
               </div>
               <div class="custom-select-options" id="points-select-options">
-                <div class="custom-select-option" data-value="1"><span>+1</span> <span class="points-coin">🐱</span>
-                </div>
-                <div class="custom-select-option" data-value="2"><span>+2</span> <span class="points-coin">🐱</span>
-                </div>
-                <div class="custom-select-option" data-value="3"><span>+3</span> <span class="points-coin">🐱</span>
-                </div>
-                <div class="custom-select-option selected" data-value="5"><span>+5</span> <span
-                    class="points-coin">🐱</span></div>
-                <div class="custom-select-option" data-value="8"><span>+8</span> <span class="points-coin">🐱</span>
-                </div>
-                <div class="custom-select-option" data-value="13"><span>+13</span> <span class="points-coin">🐱</span>
-                </div>
-                <div class="custom-select-option" data-value="21"><span>+21</span> <span class="points-coin">🐱</span>
-                </div>
+                <div class="custom-select-option selected" data-value="auto"><span>✨ AI Estimate</span> <span class="points-coin">🤖</span></div>
+                <div class="custom-select-option" data-value="1"><span>+1</span> <span class="points-coin">🐱</span></div>
+                <div class="custom-select-option" data-value="2"><span>+2</span> <span class="points-coin">🐱</span></div>
+                <div class="custom-select-option" data-value="3"><span>+3</span> <span class="points-coin">🐱</span></div>
+                <div class="custom-select-option" data-value="5"><span>+5</span> <span class="points-coin">🐱</span></div>
+                <div class="custom-select-option" data-value="8"><span>+8</span> <span class="points-coin">🐱</span></div>
+                <div class="custom-select-option" data-value="13"><span>+13</span> <span class="points-coin">🐱</span></div>
+                <div class="custom-select-option" data-value="21"><span>+21</span> <span class="points-coin">🐱</span></div>
               </div>
-              <input type="hidden" id="chore-points-input" value="5">
+              <input type="hidden" id="chore-points-input" value="auto">
             </div>
           </div>
           <div class="form-group flex-1" id="chore-assignee-group">
@@ -555,7 +596,7 @@
           <input type="file" id="chore-icon-file-input" accept="image/*" onchange="handleIconUpload(event, 'chore')" style="display: none;">
           <input type="hidden" id="chore-icon-url-input">
           <div id="chore-icon-preview-container" class="icon-preview-box" style="display: none; align-items: center; gap: 0.75rem; margin-top: 0.5rem; padding: 0.5rem; border-radius: var(--radius-lg); background: var(--bg-hover);">
-            <img id="chore-icon-preview-img" src="" alt="Icon Preview" style="width: 48px; height: 48px; object-fit: cover; object-position: center; border-radius: 8px; border: 2px solid var(--primary-color); cursor: pointer;" onclick="openImageModal(this.src)" title="Click to enlarge">
+            <img id="chore-icon-preview-img" src="" alt="Chore Photo" style="width: 48px; height: 48px; object-fit: cover; object-position: center; border-radius: 8px; border: 2px solid var(--primary-color); cursor: pointer;" onclick="openImageModal(this.src, document.getElementById('chore-title-input')?.value || 'Chore Photo')" title="Click to enlarge">
             <button type="button" class="btn btn-outline btn-sm" onclick="clearIconUpload('chore')">Remove Image</button>
           </div>
         </div>
@@ -620,7 +661,7 @@
           <input type="file" id="reward-icon-file-input" accept="image/*" onchange="handleIconUpload(event, 'reward')" style="display: none;">
           <input type="hidden" id="reward-icon-url-input">
           <div id="reward-icon-preview-container" class="icon-preview-box" style="display: none; align-items: center; gap: 0.75rem; margin-top: 0.5rem; padding: 0.5rem; border-radius: var(--radius-lg); background: var(--bg-hover);">
-            <img id="reward-icon-preview-img" src="" alt="Icon Preview" style="width: 48px; height: 48px; object-fit: cover; object-position: center; border-radius: 8px; border: 2px solid var(--primary-color); cursor: pointer;" onclick="openImageModal(this.src)" title="Click to enlarge">
+            <img id="reward-icon-preview-img" src="" alt="Reward Photo" style="width: 48px; height: 48px; object-fit: cover; object-position: center; border-radius: 8px; border: 2px solid var(--primary-color); cursor: pointer;" onclick="openImageModal(this.src, document.getElementById('reward-name-input')?.value || 'Reward Photo')" title="Click to enlarge">
             <button type="button" class="btn btn-outline btn-sm" onclick="clearIconUpload('reward')">Remove Image</button>
           </div>
         </div>
@@ -732,34 +773,97 @@
       }
     });
 
+    function closeDropdowns() {
+      const historyMenu = document.getElementById('history-dropdown-menu');
+      const historyTrigger = document.getElementById('history-trigger-btn');
+      if (historyMenu) historyMenu.classList.remove('active');
+      if (historyTrigger) {
+        historyTrigger.classList.remove('is-active');
+        historyTrigger.setAttribute('aria-expanded', 'false');
+        historyTrigger.blur();
+      }
+
+      const notifMenu = document.getElementById('notification-dropdown-menu');
+      const notifTrigger = document.getElementById('notification-trigger-btn');
+      if (notifMenu) notifMenu.classList.remove('active');
+      if (notifTrigger) {
+        notifTrigger.classList.remove('is-active');
+        notifTrigger.setAttribute('aria-expanded', 'false');
+        notifTrigger.blur();
+      }
+
+      const userMenu = document.getElementById('user-dropdown-menu');
+      const userTrigger = document.getElementById('user-trigger-btn');
+      if (userMenu) userMenu.classList.remove('active');
+      if (userTrigger) {
+        userTrigger.classList.remove('is-active');
+        userTrigger.setAttribute('aria-expanded', 'false');
+        userTrigger.blur();
+      }
+    }
+
+    window.toggleHistoryDropdown = (event) => {
+      if (event) event.stopPropagation();
+      const menu = document.getElementById('history-dropdown-menu');
+      const trigger = document.getElementById('history-trigger-btn');
+      const isOpen = menu && menu.classList.contains('active');
+
+      closeDropdowns();
+
+      if (!isOpen && menu && trigger) {
+        menu.classList.add('active');
+        trigger.classList.add('is-active');
+        trigger.setAttribute('aria-expanded', 'true');
+        if (window.loadRecentHistory) {
+          window.loadRecentHistory();
+        }
+      } else if (trigger) {
+        trigger.blur();
+      }
+    };
+
+    window.openFullHistoryModal = (event) => {
+      if (event) event.stopPropagation();
+      closeDropdowns();
+      if (window.openFullHistoryModalImpl) {
+        window.openFullHistoryModalImpl(event);
+      }
+    };
+
     window.toggleNotificationDropdown = (event) => {
       if (event) event.stopPropagation();
       const menu = document.getElementById('notification-dropdown-menu');
-      if (menu) {
-        menu.classList.toggle('active');
-        if (menu.classList.contains('active')) {
-          if (window.markNotificationsRead) {
-            window.markNotificationsRead();
-          }
+      const trigger = document.getElementById('notification-trigger-btn');
+      const isOpen = menu && menu.classList.contains('active');
+
+      closeDropdowns();
+
+      if (!isOpen && menu && trigger) {
+        menu.classList.add('active');
+        trigger.classList.add('is-active');
+        trigger.setAttribute('aria-expanded', 'true');
+        if (window.markNotificationsRead) {
+          window.markNotificationsRead();
         }
-      }
-      // Close user dropdown if open
-      const userMenu = document.getElementById('user-dropdown-menu');
-      if (userMenu) {
-        userMenu.classList.remove('active');
+      } else if (trigger) {
+        trigger.blur();
       }
     };
 
     window.toggleUserDropdown = (event) => {
       if (event) event.stopPropagation();
       const menu = document.getElementById('user-dropdown-menu');
-      if (menu) {
-        menu.classList.toggle('active');
-      }
-      // Close notification dropdown if open
-      const notifMenu = document.getElementById('notification-dropdown-menu');
-      if (notifMenu) {
-        notifMenu.classList.remove('active');
+      const trigger = document.getElementById('user-trigger-btn');
+      const isOpen = menu && menu.classList.contains('active');
+
+      closeDropdowns();
+
+      if (!isOpen && menu && trigger) {
+        menu.classList.add('active');
+        trigger.classList.add('is-active');
+        trigger.setAttribute('aria-expanded', 'true');
+      } else if (trigger) {
+        trigger.blur();
       }
     };
 
@@ -786,10 +890,7 @@
       }
       
       // Close dropdown
-      const menu = document.getElementById('notification-dropdown-menu');
-      if (menu) {
-        menu.classList.remove('active');
-      }
+      closeDropdowns();
       
       // Show the prompt
       deferredPrompt.prompt();
@@ -807,18 +908,23 @@
 
     // Close dropdown on click outside
     document.addEventListener('click', (e) => {
-      // Notification dropdown
+      const historyMenu = document.getElementById('history-dropdown-menu');
+      const historyTrigger = document.getElementById('history-trigger-btn');
       const notifMenu = document.getElementById('notification-dropdown-menu');
       const notifTrigger = document.getElementById('notification-trigger-btn');
-      if (notifMenu && notifMenu.classList.contains('active') && !notifMenu.contains(e.target) && e.target !== notifTrigger && !notifTrigger.contains(e.target)) {
-        notifMenu.classList.remove('active');
-      }
-
-      // User dropdown
       const userMenu = document.getElementById('user-dropdown-menu');
       const userTrigger = document.getElementById('user-trigger-btn');
-      if (userMenu && userMenu.classList.contains('active') && !userMenu.contains(e.target) && e.target !== userTrigger && !userTrigger.contains(e.target)) {
-        userMenu.classList.remove('active');
+
+      const clickedInsideAny = 
+        (historyMenu && historyMenu.contains(e.target)) ||
+        (historyTrigger && historyTrigger.contains(e.target)) ||
+        (notifMenu && notifMenu.contains(e.target)) ||
+        (notifTrigger && notifTrigger.contains(e.target)) ||
+        (userMenu && userMenu.contains(e.target)) ||
+        (userTrigger && userTrigger.contains(e.target));
+
+      if (!clickedInsideAny) {
+        closeDropdowns();
       }
     });
   </script>
@@ -858,13 +964,13 @@
         <h3 style="margin: 0;" id="ai-modal-header-title">AI Created Item</h3>
       </div>
       <p style="font-size: 0.85rem; color: var(--text-muted); margin-bottom: 1rem;">
-        Gemini Vision analyzed your image, inferred title & description, and calculated Fibonacci coins ($2 = 1 coin)!
+        Gemini Vision analyzed your image, inferred title & description, and calculated coins ($2 = 1 coin)!
       </p>
 
       <!-- Image Preview -->
       <div style="text-align: center; margin-bottom: 1rem;">
         <div style="width: 100px; height: 100px; margin: 0 auto; border-radius: var(--radius-lg); overflow: hidden; border: 2px solid var(--border-color); background: #0f172a; box-shadow: var(--shadow-sm);">
-          <img id="ai-modal-image-preview" src="" alt="AI Item Preview" style="width: 100%; height: 100%; object-fit: cover; object-position: center; cursor: pointer;" onclick="openImageModal(this.src)" />
+          <img id="ai-modal-image-preview" src="" alt="AI Item Preview" style="width: 100%; height: 100%; object-fit: cover; object-position: center; cursor: pointer;" onclick="openImageModal(this.src, document.getElementById('ai-input-title')?.value || 'Photo Preview')" />
         </div>
         <button type="button" class="btn btn-outline btn-xs" onclick="triggerAiPhotoPicker()" style="margin-top: 0.5rem; font-size: 0.75rem;">📸 Change Photo</button>
       </div>
@@ -891,13 +997,13 @@
           <textarea id="ai-input-description" class="form-input" rows="2" placeholder="Details about this item..."></textarea>
         </div>
 
-        <!-- Points / Coins + Fibonacci Valuation Badge -->
+        <!-- Points / Coins + Valuation Badge -->
         <div class="form-group" style="margin-bottom: 1rem;">
           <label class="form-label" for="ai-input-points" id="ai-points-label">Coin Reward</label>
           <div style="display: flex; gap: 0.5rem; align-items: center;">
-            <input type="number" id="ai-input-points" class="form-input" min="1" required style="max-width: 120px; font-weight: 800; font-size: 1.1rem; text-align: center;" oninput="updateAiValuationHint()" />
+            <input type="number" id="ai-input-points" class="form-input" min="0" required style="max-width: 120px; font-weight: 800; font-size: 1.1rem; text-align: center;" oninput="updateAiValuationHint()" />
             <div id="ai-valuation-badge" style="flex: 1; background: rgba(245, 158, 11, 0.08); border-radius: var(--radius-md); padding: 0.5rem 0.75rem; font-size: 0.8rem; color: var(--text-main); border: 1px solid rgba(245, 158, 11, 0.3);">
-              <span style="font-weight: 800; color: #f59e0b;">🪙 Fibonacci Scale</span>
+              <span style="font-weight: 800; color: #f59e0b;">🪙 Fair Coin Valuation</span>
               <div id="ai-valuation-reasoning" style="font-size: 0.75rem; color: var(--text-muted); font-style: italic;">$2 est. value = 1 coin</div>
             </div>
           </div>
@@ -954,6 +1060,7 @@
         <button type="button" class="avatar-tab-btn active" id="avatar-tab-animals" onclick="switchAvatarTab('animals')" title="Animals" aria-label="Animals">🐾</button>
         <button type="button" class="avatar-tab-btn" id="avatar-tab-characters" onclick="switchAvatarTab('characters')" title="Characters" aria-label="Characters">🦸</button>
         <button type="button" class="avatar-tab-btn" id="avatar-tab-cool" onclick="switchAvatarTab('cool')" title="Hobbies & Sports" aria-label="Hobbies & Sports">🎮</button>
+        <button type="button" class="avatar-tab-btn" id="avatar-tab-frames" onclick="switchAvatarTab('frames')" title="Avatar Frames" aria-label="Avatar Frames">🖼️</button>
       </div>
 
       <!-- Avatar Preset Grids -->
@@ -1039,11 +1146,8 @@
         </div>
 
         <!-- Canvas Wheel -->
-        <div class="wheel-canvas-container" id="wheel-canvas-container">
+        <div class="wheel-canvas-container" id="wheel-canvas-container" onclick="handleSpinWheelClick()">
           <canvas id="wheel-canvas" width="280" height="280"></canvas>
-          <div class="wheel-center-hub" onclick="handleSpinWheelClick()" title="SPIN!">
-            <span class="hub-text">SPIN</span>
-          </div>
         </div>
       </div>
 
@@ -1066,6 +1170,160 @@
         <button id="wheel-done-btn" class="btn btn-primary btn-block wheel-done-btn" onclick="closeWheelModal()" style="display: none;">
           Done ✨
         </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- SURPRISE UNBOXING MODAL -->
+  <div class="modal-backdrop surprise-unbox-backdrop" id="surprise-unbox-modal" style="z-index: 9999; display: none;" onclick="handleSurpriseBackdropClick(event)">
+    <button class="modal-close-btn surprise-modal-close" onclick="handleDismissSurpriseModal()" title="Close">×</button>
+    <div class="surprise-unbox-container" onclick="handleSurpriseBackdropClick(event)">
+      <!-- Ambient Glow Aura behind gift -->
+      <div class="gift-aura-glow" id="gift-aura-glow"></div>
+
+      <!-- Jump/Wobble Gift Box Component -->
+      <div class="gift-box-interactive" id="gift-box-interactive" onclick="handleOpenSurpriseBoxClick(event)">
+        <!-- 3D Gift Box Lid -->
+        <div class="gift-lid-wrapper" id="gift-lid-wrapper">
+          <div class="gift-bow">
+            <div class="bow-loop bow-left"></div>
+            <div class="bow-loop bow-right"></div>
+            <div class="bow-knot"></div>
+          </div>
+          <div class="gift-lid">
+            <div class="gift-lid-ribbon"></div>
+          </div>
+        </div>
+        <!-- Gift Box Body -->
+        <div class="gift-body" id="gift-body">
+          <div class="gift-body-ribbon-v"></div>
+          <div class="gift-body-ribbon-h"></div>
+        </div>
+      </div>
+
+      <!-- Unboxed Reward Reveal Stage (revealed after clicking box) -->
+      <div class="surprise-reward-stage" id="surprise-reward-stage" style="display: none;" onclick="event.stopPropagation()">
+        <div class="surprise-burst-rays"></div>
+        <h2 class="surprise-theme-name" id="surprise-theme-title">Cherry Blossom</h2>
+        <div class="surprise-preview-wrapper" id="surprise-preview-container">
+          <!-- Live theme preview pill rendered dynamically -->
+        </div>
+        <div class="surprise-action-buttons">
+          <button class="btn btn-primary surprise-equip-btn" id="surprise-equip-btn" onclick="handleEquipSurpriseTheme()">
+            ✨ Equip Now
+          </button>
+          <button class="btn btn-secondary surprise-continue-btn" onclick="handleDismissSurpriseModal()">
+            Awesome!
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- POINTS BACKGROUND THEMES MODAL -->
+  <div class="modal-backdrop" id="points-bg-modal" style="z-index: 1250;" onclick="if(event.target === this) closeModal('points-bg-modal')">
+    <div class="modal-card points-bg-modal-card">
+      <button class="modal-close-btn" onclick="closeModal('points-bg-modal')">×</button>
+      <div class="points-bg-header">
+        <h3 class="points-bg-title">✨ Points Background Themes</h3>
+      </div>
+
+      <!-- Live Preview Area -->
+      <div class="points-bg-preview-section">
+        <div class="points-bg-preview-box">
+          <div id="points-bg-preview-pill" class="user-coins-pill">
+            <div class="coin-chip individual">
+              <span class="points-coin">🐱</span>
+              <span class="coin-amount" id="preview-coin-amount-individual">10</span>
+            </div>
+            <div class="coin-pill-divider"></div>
+            <div class="coin-chip cooperative">
+              <span class="points-coin coop-theme">🐱🐱</span>
+              <span class="coin-amount" id="preview-coin-amount-cooperative">5</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Themes Grid -->
+      <div class="points-bg-grid" id="points-bg-themes-grid">
+        <!-- Dynamically rendered theme items -->
+      </div>
+    </div>
+  </div>
+
+  <!-- FULL HOUSEHOLD ACTIVITY HISTORY MODAL -->
+  <div class="modal-backdrop" id="full-history-modal" style="z-index: 1260;" onclick="if(event.target === this) closeFullHistoryModal()">
+    <div class="modal-card history-modal-card">
+      <!-- Modal Header with Title & Close Button -->
+      <div class="history-modal-header">
+        <div class="history-modal-title">
+          <svg class="history-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="color: var(--primary-blue, #2563eb);">
+            <circle cx="12" cy="12" r="10"></circle>
+            <polyline points="12 6 12 12 16 14"></polyline>
+          </svg>
+          <h3 style="margin: 0; font-size: 1.15rem; font-weight: 800;">Activity History</h3>
+        </div>
+        <button class="modal-close-btn history-close-btn" onclick="closeFullHistoryModal()" title="Close">×</button>
+      </div>
+      
+      <!-- Clean, minimal Filter Controls Bar -->
+      <div class="history-filters-bar" style="margin-bottom: 0.75rem;">
+        <!-- User Filter (Visible for Admins) -->
+        <div class="history-filter-item" id="history-user-filter-container">
+          <span style="font-size: 1.1rem;">👤</span>
+          <select id="history-user-filter" class="form-control history-select" onchange="onHistoryFilterChange()" title="Filter by Member">
+            <option value="">All Members</option>
+          </select>
+        </div>
+
+        <!-- Activity Category Filter -->
+        <div class="history-filter-item">
+          <span style="font-size: 1.1rem;">🏷️</span>
+          <select id="history-category-filter" class="form-control history-select" onchange="onHistoryFilterChange()" title="Filter by Activity">
+            <option value="all">All Activities</option>
+            <option value="tasks">Tasks</option>
+            <option value="rewards">Rewards</option>
+            <option value="wheel">Wheel</option>
+          </select>
+        </div>
+      </div>
+
+      <!-- Timeline Scroll Container -->
+      <div class="history-timeline-scroll" id="history-timeline-container">
+        <!-- Rendered dynamically -->
+      </div>
+    </div>
+  </div>
+
+  <!-- HOUSEHOLD AI CUSTOM INSTRUCTIONS MODAL -->
+  <div class="modal-backdrop" id="household-ai-modal" style="z-index: 1250;" onclick="if(event.target === this) closeModal('household-ai-modal')">
+    <div class="modal-card" style="max-width: 540px; width: 92%;">
+      <button class="modal-close-btn" onclick="closeModal('household-ai-modal')">×</button>
+      
+      <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 0.5rem;">
+        <span style="font-size: 1.6rem;">🤖</span>
+        <div>
+          <h3 style="margin: 0; font-size: 1.2rem; font-weight: 800;">Household AI Instructions</h3>
+          <span style="font-size: 0.8rem; color: var(--text-muted);">Custom rules for photo chores & coin calculations</span>
+        </div>
+      </div>
+      
+      <p style="font-size: 0.85rem; color: var(--text-muted); line-height: 1.45; margin-bottom: 0.85rem;">
+        Teach the AI about your household habits, appliances, and point rules. When snapping chores or creating tasks, the AI will strictly obey your custom instructions!
+      </p>
+
+      <div class="form-group" style="margin-bottom: 1rem;">
+        <label for="household-ai-instructions-textarea" style="font-size: 0.85rem; font-weight: 600; display: flex; justify-content: space-between; align-items: center;">
+          <span>Custom Instructions for AI:</span>
+          <span id="ai-instructions-char-count" style="font-size: 0.75rem; font-weight: normal; color: var(--text-muted);">0 / 2000</span>
+        </label>
+        <textarea id="household-ai-instructions-textarea" rows="6" maxlength="2000" oninput="updateAiInstructionsCharCount()" style="width: 100%; padding: 10px; font-size: 0.88rem; border-radius: 8px; border: 1px solid var(--border-color); background: var(--input-bg); color: var(--text-main); resize: vertical; line-height: 1.4;"></textarea>
+      </div>
+
+      <div style="display: flex; gap: 8px; justify-content: flex-end; align-items: center;">
+        <button type="button" class="btn btn-outline btn-sm" onclick="clearHouseholdAiInstructions()">Clear All</button>
+        <button type="button" class="btn btn-primary btn-sm" id="save-ai-instructions-btn" onclick="saveHouseholdAiInstructions()">Save Rules ✨</button>
       </div>
     </div>
   </div>

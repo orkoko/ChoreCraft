@@ -562,8 +562,11 @@ func TestDailyBonusAndLuckyWheel(t *testing.T) {
 	if dbStatus.TasksCompleted != 0 {
 		t.Errorf("Expected 0 tasks completed, got %d", dbStatus.TasksCompleted)
 	}
-	if dbStatus.SpinsAvailable != 1 {
-		t.Errorf("Expected 1 welcome spin available, got %d", dbStatus.SpinsAvailable)
+	if dbStatus.SpinsAvailable != 0 {
+		t.Errorf("Expected 0 spins available on login, got %d", dbStatus.SpinsAvailable)
+	}
+	if dbStatus.TargetWheel != 1 {
+		t.Errorf("Expected TargetWheel to be 1, got %d", dbStatus.TargetWheel)
 	}
 
 	// 4. Admin tries to spin the wheel -> forbidden
@@ -572,7 +575,47 @@ func TestDailyBonusAndLuckyWheel(t *testing.T) {
 	reqAdminSpin.Header.Set("Authorization", "Bearer "+tokenAdmin)
 	performRequest(t, reqAdminSpin, http.StatusForbidden)
 
-	// 5. Kid spins welcome spin
+	// 5. Kid tries to spin before completing any tasks -> 400 Bad Request (no spins available)
+	reqKidSpinEarly, _ := http.NewRequest("POST", wheelSpinURL, nil)
+	reqKidSpinEarly.Header.Set("Authorization", "Bearer "+tokenKid)
+	performRequest(t, reqKidSpinEarly, http.StatusBadRequest)
+
+	// 6. Complete 1st task to reach milestone 1 (awards daily wheel spin)
+	taskReq1 := model.CreateTaskRequest{Title: "Chore 1", Type: "individual", PointsReward: 5}
+	taskBody1, _ := json.Marshal(taskReq1)
+	reqCreate1, _ := http.NewRequest("POST", fmt.Sprintf("/api/choregroups/%s/tasks", admin.ChoreGroupID), bytes.NewBuffer(taskBody1))
+	reqCreate1.Header.Set("Authorization", "Bearer "+tokenAdmin)
+	rrCreate1 := performRequest(t, reqCreate1, http.StatusCreated)
+	var tObj1 model.Task
+	json.NewDecoder(rrCreate1.Body).Decode(&tObj1)
+
+	// Submit task 1
+	reqSub1, _ := http.NewRequest("POST", fmt.Sprintf("/api/choregroups/%s/tasks/%s/submit", admin.ChoreGroupID, tObj1.ID), nil)
+	reqSub1.Header.Set("Authorization", "Bearer "+tokenKid)
+	performRequest(t, reqSub1, http.StatusCreated)
+
+	// Approve task 1
+	approveReq1 := model.UpdateSubmissionRequest{Action: "approve"}
+	approveBody1, _ := json.Marshal(approveReq1)
+	reqApprove1, _ := http.NewRequest("PUT", fmt.Sprintf("/api/choregroups/%s/tasks/%s/status", admin.ChoreGroupID, tObj1.ID), bytes.NewBuffer(approveBody1))
+	reqApprove1.Header.Set("Authorization", "Bearer "+tokenAdmin)
+	performRequest(t, reqApprove1, http.StatusNoContent)
+
+	// Check daily bonus after 1st task: 1 task completed, 1 spin available!
+	reqDB1, _ := http.NewRequest("GET", dailyBonusURL, nil)
+	reqDB1.Header.Set("Authorization", "Bearer "+tokenKid)
+	rrDB1 := performRequest(t, reqDB1, http.StatusOK)
+	var dbStatus1 model.DailyBonusStatusResponse
+	json.NewDecoder(rrDB1.Body).Decode(&dbStatus1)
+
+	if dbStatus1.TasksCompleted != 1 {
+		t.Errorf("Expected 1 task completed, got %d", dbStatus1.TasksCompleted)
+	}
+	if dbStatus1.SpinsAvailable != 1 {
+		t.Errorf("Expected 1 spin available after 1st task, got %d", dbStatus1.SpinsAvailable)
+	}
+
+	// 7. Kid spins the wheel using the earned spin
 	reqKidSpin, _ := http.NewRequest("POST", wheelSpinURL, nil)
 	reqKidSpin.Header.Set("Authorization", "Bearer "+tokenKid)
 	rrKidSpin := performRequest(t, reqKidSpin, http.StatusOK)
@@ -583,16 +626,16 @@ func TestDailyBonusAndLuckyWheel(t *testing.T) {
 		t.Errorf("Expected slice index between 0 and 7, got %d", spinRes.SliceIndex)
 	}
 	if spinRes.SpinsRemaining != 0 {
-		t.Errorf("Expected 0 spins remaining after welcome spin, got %d", spinRes.SpinsRemaining)
+		t.Errorf("Expected 0 spins remaining after spinning, got %d", spinRes.SpinsRemaining)
 	}
 
-	// 6. Kid tries to spin again -> 400 Bad Request (no spins left)
+	// 8. Kid tries to spin again -> 400 Bad Request (no spins left)
 	reqKidSpin2, _ := http.NewRequest("POST", wheelSpinURL, nil)
 	reqKidSpin2.Header.Set("Authorization", "Bearer "+tokenKid)
 	performRequest(t, reqKidSpin2, http.StatusBadRequest)
 
-	// 7. Complete 3 tasks to reach milestone 3 (unlocks daily wheel spin)
-	for i := 1; i <= 3; i++ {
+	// 9. Complete tasks 2 and 3
+	for i := 2; i <= 3; i++ {
 		taskReq := model.CreateTaskRequest{Title: fmt.Sprintf("Chore %d", i), Type: "individual", PointsReward: 5}
 		taskBody, _ := json.Marshal(taskReq)
 		reqCreate, _ := http.NewRequest("POST", fmt.Sprintf("/api/choregroups/%s/tasks", admin.ChoreGroupID), bytes.NewBuffer(taskBody))
@@ -614,7 +657,7 @@ func TestDailyBonusAndLuckyWheel(t *testing.T) {
 		performRequest(t, reqApprove, http.StatusNoContent)
 	}
 
-	// Check daily bonus after 3 tasks
+	// Check daily bonus after 3 tasks: spins available is 0 (first spin was already used, milestone 3 is not a spin milestone)
 	reqDB3, _ := http.NewRequest("GET", dailyBonusURL, nil)
 	reqDB3.Header.Set("Authorization", "Bearer "+tokenKid)
 	rrDB3 := performRequest(t, reqDB3, http.StatusOK)
@@ -624,72 +667,74 @@ func TestDailyBonusAndLuckyWheel(t *testing.T) {
 	if dbStatus3.TasksCompleted != 3 {
 		t.Errorf("Expected 3 tasks completed, got %d", dbStatus3.TasksCompleted)
 	}
-	if dbStatus3.SpinsAvailable != 1 {
-		t.Errorf("Expected 1 spin available after 3 tasks, got %d", dbStatus3.SpinsAvailable)
+	if dbStatus3.SpinsAvailable != 0 {
+		t.Errorf("Expected 0 spins available after 3 tasks (already consumed at 1), got %d", dbStatus3.SpinsAvailable)
 	}
 
-	// 8. Spin the daily earned spin
-	reqKidSpin3, _ := http.NewRequest("POST", wheelSpinURL, nil)
-	reqKidSpin3.Header.Set("Authorization", "Bearer "+tokenKid)
-	rrKidSpin3 := performRequest(t, reqKidSpin3, http.StatusOK)
-	var spinRes3 model.WheelSpinResponse
-	json.NewDecoder(rrKidSpin3.Body).Decode(&spinRes3)
-	if spinRes3.SpinsRemaining != 0 {
-		t.Errorf("Expected 0 spins remaining after spinning daily spin, got %d", spinRes3.SpinsRemaining)
+	// 9. Complete task 4 to unlock milestone 4 (2nd Lucky Wheel spin)
+	taskReq4 := model.CreateTaskRequest{Title: "Chore 4", Type: "individual", PointsReward: 5}
+	taskBody4, _ := json.Marshal(taskReq4)
+	reqCreate4, _ := http.NewRequest("POST", fmt.Sprintf("/api/choregroups/%s/tasks", admin.ChoreGroupID), bytes.NewBuffer(taskBody4))
+	reqCreate4.Header.Set("Authorization", "Bearer "+tokenAdmin)
+	rrCreate4 := performRequest(t, reqCreate4, http.StatusCreated)
+	var tObj4 model.Task
+	json.NewDecoder(rrCreate4.Body).Decode(&tObj4)
+
+	// Submit & Approve task 4
+	reqSub4, _ := http.NewRequest("POST", fmt.Sprintf("/api/choregroups/%s/tasks/%s/submit", admin.ChoreGroupID, tObj4.ID), nil)
+	reqSub4.Header.Set("Authorization", "Bearer "+tokenKid)
+	performRequest(t, reqSub4, http.StatusCreated)
+
+	approveReq4 := model.UpdateSubmissionRequest{Action: "approve"}
+	approveBody4, _ := json.Marshal(approveReq4)
+	reqApprove4, _ := http.NewRequest("PUT", fmt.Sprintf("/api/choregroups/%s/tasks/%s/status", admin.ChoreGroupID, tObj4.ID), bytes.NewBuffer(approveBody4))
+	reqApprove4.Header.Set("Authorization", "Bearer "+tokenAdmin)
+	performRequest(t, reqApprove4, http.StatusNoContent)
+
+	// Check daily bonus after 4 tasks -> milestone 4 awards a 2nd Lucky Wheel spin!
+	reqDB4, _ := http.NewRequest("GET", dailyBonusURL, nil)
+	reqDB4.Header.Set("Authorization", "Bearer "+tokenKid)
+	rrDB4 := performRequest(t, reqDB4, http.StatusOK)
+	var dbStatus4 model.DailyBonusStatusResponse
+	json.NewDecoder(rrDB4.Body).Decode(&dbStatus4)
+
+	if dbStatus4.TasksCompleted != 4 {
+		t.Errorf("Expected 4 tasks completed, got %d", dbStatus4.TasksCompleted)
+	}
+	if dbStatus4.SpinsAvailable != 1 {
+		t.Errorf("Expected 1 spin available after 4 tasks (milestone 4 spin), got %d", dbStatus4.SpinsAvailable)
 	}
 
-	// 9. Complete tasks 4 and 5 to unlock milestone 5 (2x double coins on next task)
-	for i := 4; i <= 5; i++ {
-		taskReq := model.CreateTaskRequest{Title: fmt.Sprintf("Chore %d", i), Type: "individual", PointsReward: 5}
-		taskBody, _ := json.Marshal(taskReq)
-		reqCreate, _ := http.NewRequest("POST", fmt.Sprintf("/api/choregroups/%s/tasks", admin.ChoreGroupID), bytes.NewBuffer(taskBody))
-		reqCreate.Header.Set("Authorization", "Bearer "+tokenAdmin)
-		rrCreate := performRequest(t, reqCreate, http.StatusCreated)
-		var tObj model.Task
-		json.NewDecoder(rrCreate.Body).Decode(&tObj)
-
-		// Submit
-		reqSub, _ := http.NewRequest("POST", fmt.Sprintf("/api/choregroups/%s/tasks/%s/submit", admin.ChoreGroupID, tObj.ID), nil)
-		reqSub.Header.Set("Authorization", "Bearer "+tokenKid)
-		performRequest(t, reqSub, http.StatusCreated)
-
-		// Approve
-		approveReq := model.UpdateSubmissionRequest{Action: "approve"}
-		approveBody, _ := json.Marshal(approveReq)
-		reqApprove, _ := http.NewRequest("PUT", fmt.Sprintf("/api/choregroups/%s/tasks/%s/status", admin.ChoreGroupID, tObj.ID), bytes.NewBuffer(approveBody))
-		reqApprove.Header.Set("Authorization", "Bearer "+tokenAdmin)
-		performRequest(t, reqApprove, http.StatusNoContent)
+	// 10. Kid spins the wheel using the milestone 4 earned spin
+	reqKidSpin4, _ := http.NewRequest("POST", wheelSpinURL, nil)
+	reqKidSpin4.Header.Set("Authorization", "Bearer "+tokenKid)
+	rrKidSpin4 := performRequest(t, reqKidSpin4, http.StatusOK)
+	var spinRes4 model.WheelSpinResponse
+	json.NewDecoder(rrKidSpin4.Body).Decode(&spinRes4)
+	if spinRes4.SpinsRemaining != 0 {
+		t.Errorf("Expected 0 spins remaining after spinning milestone 4 spin, got %d", spinRes4.SpinsRemaining)
 	}
 
-	// Check daily bonus after 5 tasks -> double_coins_active should be TRUE
-	reqDB5, _ := http.NewRequest("GET", dailyBonusURL, nil)
-	reqDB5.Header.Set("Authorization", "Bearer "+tokenKid)
-	rrDB5 := performRequest(t, reqDB5, http.StatusOK)
-	var dbStatus5 model.DailyBonusStatusResponse
-	json.NewDecoder(rrDB5.Body).Decode(&dbStatus5)
+	// Complete task 5
+	taskReq5 := model.CreateTaskRequest{Title: "Chore 5", Type: "individual", PointsReward: 5}
+	taskBody5, _ := json.Marshal(taskReq5)
+	reqCreate5, _ := http.NewRequest("POST", fmt.Sprintf("/api/choregroups/%s/tasks", admin.ChoreGroupID), bytes.NewBuffer(taskBody5))
+	reqCreate5.Header.Set("Authorization", "Bearer "+tokenAdmin)
+	rrCreate5 := performRequest(t, reqCreate5, http.StatusCreated)
+	var tObj5 model.Task
+	json.NewDecoder(rrCreate5.Body).Decode(&tObj5)
 
-	if dbStatus5.TasksCompleted != 5 {
-		t.Errorf("Expected 5 tasks completed, got %d", dbStatus5.TasksCompleted)
-	}
-	if !dbStatus5.DoubleCoinsActive {
-		t.Errorf("Expected double_coins_active to be true after 5 tasks completed")
-	}
+	reqSub5, _ := http.NewRequest("POST", fmt.Sprintf("/api/choregroups/%s/tasks/%s/submit", admin.ChoreGroupID, tObj5.ID), nil)
+	reqSub5.Header.Set("Authorization", "Bearer "+tokenKid)
+	performRequest(t, reqSub5, http.StatusCreated)
 
-	// 10. Check kid's points before 6th task
-	statsURL := fmt.Sprintf("/api/choregroups/%s/statistics", admin.ChoreGroupID)
-	reqStats, _ := http.NewRequest("GET", statsURL, nil)
-	reqStats.Header.Set("Authorization", "Bearer "+tokenAdmin)
-	rrStats := performRequest(t, reqStats, http.StatusOK)
-	var statsBefore model.StatisticsResponse
-	json.NewDecoder(rrStats.Body).Decode(&statsBefore)
-	var kidPointsBefore int
-	for _, u := range statsBefore.Users {
-		if u.Username == "bonus_kid" {
-			kidPointsBefore = u.Points
-		}
-	}
+	approveReq5 := model.UpdateSubmissionRequest{Action: "approve"}
+	approveBody5, _ := json.Marshal(approveReq5)
+	reqApprove5, _ := http.NewRequest("PUT", fmt.Sprintf("/api/choregroups/%s/tasks/%s/status", admin.ChoreGroupID, tObj5.ID), bytes.NewBuffer(approveBody5))
+	reqApprove5.Header.Set("Authorization", "Bearer "+tokenAdmin)
+	performRequest(t, reqApprove5, http.StatusNoContent)
 
-	// 10.5 Test that a mandatory task does NOT consume the 2x coins reward or count towards daily bonus
+	// 10.5 Test that a mandatory task counts towards daily bonus
 	mandReq := model.CreateTaskRequest{Title: "Clean Dining Table (Mandatory Test)", Type: "individual", IsMandatory: true}
 	mandBody, _ := json.Marshal(mandReq)
 	reqCreateMand, _ := http.NewRequest("POST", fmt.Sprintf("/api/choregroups/%s/tasks", admin.ChoreGroupID), bytes.NewBuffer(mandBody))
@@ -708,25 +753,19 @@ func TestDailyBonusAndLuckyWheel(t *testing.T) {
 	reqApproveMand.Header.Set("Authorization", "Bearer "+tokenAdmin)
 	performRequest(t, reqApproveMand, http.StatusNoContent)
 
-	// Check daily bonus after mandatory task -> double_coins_active must STILL be true, double_coins_used must STILL be false
+	// Check daily bonus after mandatory task
 	reqDBMand, _ := http.NewRequest("GET", dailyBonusURL, nil)
 	reqDBMand.Header.Set("Authorization", "Bearer "+tokenKid)
 	rrDBMand := performRequest(t, reqDBMand, http.StatusOK)
 	var dbStatusMand model.DailyBonusStatusResponse
 	json.NewDecoder(rrDBMand.Body).Decode(&dbStatusMand)
 
-	if !dbStatusMand.DoubleCoinsActive {
-		t.Errorf("Expected double_coins_active to remain TRUE after mandatory chore was approved")
-	}
-	if dbStatusMand.DoubleCoinsUsed {
-		t.Errorf("Expected double_coins_used to remain FALSE after mandatory chore was approved")
-	}
 	if dbStatusMand.TasksCompleted != 6 {
 		t.Errorf("Expected tasks_completed to be 6 (mandatory counts for progress bar), got %d", dbStatusMand.TasksCompleted)
 	}
 
-	// 11. Create 6th chore with 10 coins reward. When approved, it should award 20 coins (doubled)!
-	taskReq6 := model.CreateTaskRequest{Title: "Chore 6 (2x Test)", Type: "individual", PointsReward: 10}
+	// 11. Create 6th chore with 10 coins reward. When approved, awards regular 10 coins.
+	taskReq6 := model.CreateTaskRequest{Title: "Chore 6", Type: "individual", PointsReward: 10}
 	taskBody6, _ := json.Marshal(taskReq6)
 	reqCreate6, _ := http.NewRequest("POST", fmt.Sprintf("/api/choregroups/%s/tasks", admin.ChoreGroupID), bytes.NewBuffer(taskBody6))
 	reqCreate6.Header.Set("Authorization", "Bearer "+tokenAdmin)
@@ -746,37 +785,78 @@ func TestDailyBonusAndLuckyWheel(t *testing.T) {
 	reqApprove6.Header.Set("Authorization", "Bearer "+tokenAdmin)
 	performRequest(t, reqApprove6, http.StatusNoContent)
 
-	// Check kid's points after 6th task -> should be kidPointsBefore + 20
-	reqStatsAfter, _ := http.NewRequest("GET", statsURL, nil)
-	reqStatsAfter.Header.Set("Authorization", "Bearer "+tokenAdmin)
-	rrStatsAfter := performRequest(t, reqStatsAfter, http.StatusOK)
-	var statsAfter model.StatisticsResponse
-	json.NewDecoder(rrStatsAfter.Body).Decode(&statsAfter)
-	var kidPointsAfter int
-	for _, u := range statsAfter.Users {
-		if u.Username == "bonus_kid" {
-			kidPointsAfter = u.Points
-		}
+	// 12. Simulate Day 2: Daily spin is NOT available on login (tasks_completed = 0)
+	_, execErr := testDbPool.Exec(context.Background(),
+		"UPDATE user_daily_progress SET date = CURRENT_DATE - INTERVAL '1 day' WHERE user_id = $1",
+		kid.UserID,
+	)
+	if execErr != nil {
+		t.Fatalf("Failed to simulate previous day: %v", execErr)
 	}
 
-	if kidPointsAfter != kidPointsBefore+20 {
-		t.Errorf("Expected kid points to increase by 20 (10 doubled), but got increase of %d (before: %d, after: %d)",
-			kidPointsAfter-kidPointsBefore, kidPointsBefore, kidPointsAfter)
+	reqDay2, _ := http.NewRequest("GET", dailyBonusURL, nil)
+	reqDay2.Header.Set("Authorization", "Bearer "+tokenKid)
+	rrDay2 := performRequest(t, reqDay2, http.StatusOK)
+	var dbStatusDay2 model.DailyBonusStatusResponse
+	json.NewDecoder(rrDay2.Body).Decode(&dbStatusDay2)
+
+	if dbStatusDay2.TasksCompleted != 0 {
+		t.Errorf("Expected 0 tasks completed on Day 2, got %d", dbStatusDay2.TasksCompleted)
+	}
+	if dbStatusDay2.SpinsAvailable != 0 {
+		t.Errorf("Expected 0 spins available on login on Day 2, got %d", dbStatusDay2.SpinsAvailable)
+	}
+	if !dbStatusDay2.HasClaimedWelcomeSpin {
+		t.Errorf("Expected HasClaimedWelcomeSpin to be true on Day 2")
 	}
 
-	// Check daily bonus after 6th task -> double_coins_active should be false and double_coins_used should be true
-	reqDB6, _ := http.NewRequest("GET", dailyBonusURL, nil)
-	reqDB6.Header.Set("Authorization", "Bearer "+tokenKid)
-	rrDB6 := performRequest(t, reqDB6, http.StatusOK)
-	var dbStatus6 model.DailyBonusStatusResponse
-	json.NewDecoder(rrDB6.Body).Decode(&dbStatus6)
+	// Spinning on Day 2 without completing the 1st task fails (400 Bad Request)
+	reqKidSpinDay2Fail, _ := http.NewRequest("POST", wheelSpinURL, nil)
+	reqKidSpinDay2Fail.Header.Set("Authorization", "Bearer "+tokenKid)
+	performRequest(t, reqKidSpinDay2Fail, http.StatusBadRequest)
 
-	if dbStatus6.DoubleCoinsActive {
-		t.Errorf("Expected double_coins_active to be false after 6th task consumed it")
+	// Complete 1 chore on Day 2 to earn the Day 2 daily wheel spin
+	taskDay2Req := model.CreateTaskRequest{Title: "Day 2 Chore 1", Type: "individual", PointsReward: 5}
+	taskDay2Body, _ := json.Marshal(taskDay2Req)
+	reqDay2Create, _ := http.NewRequest("POST", fmt.Sprintf("/api/choregroups/%s/tasks", admin.ChoreGroupID), bytes.NewBuffer(taskDay2Body))
+	reqDay2Create.Header.Set("Authorization", "Bearer "+tokenAdmin)
+	rrDay2Create := performRequest(t, reqDay2Create, http.StatusCreated)
+	var taskDay2Obj model.Task
+	json.NewDecoder(rrDay2Create.Body).Decode(&taskDay2Obj)
+
+	reqDay2Sub, _ := http.NewRequest("POST", fmt.Sprintf("/api/choregroups/%s/tasks/%s/submit", admin.ChoreGroupID, taskDay2Obj.ID), nil)
+	reqDay2Sub.Header.Set("Authorization", "Bearer "+tokenKid)
+	performRequest(t, reqDay2Sub, http.StatusCreated)
+
+	approveDay2Body, _ := json.Marshal(model.UpdateSubmissionRequest{Action: "approve"})
+	reqDay2Approve, _ := http.NewRequest("PUT", fmt.Sprintf("/api/choregroups/%s/tasks/%s/status", admin.ChoreGroupID, taskDay2Obj.ID), bytes.NewBuffer(approveDay2Body))
+	reqDay2Approve.Header.Set("Authorization", "Bearer "+tokenAdmin)
+	performRequest(t, reqDay2Approve, http.StatusNoContent)
+
+	// Now Day 2 has 1 spin available!
+	reqDay2AfterTask, _ := http.NewRequest("GET", dailyBonusURL, nil)
+	reqDay2AfterTask.Header.Set("Authorization", "Bearer "+tokenKid)
+	rrDay2AfterTask := performRequest(t, reqDay2AfterTask, http.StatusOK)
+	var dbStatusDay2After model.DailyBonusStatusResponse
+	json.NewDecoder(rrDay2AfterTask.Body).Decode(&dbStatusDay2After)
+	if dbStatusDay2After.SpinsAvailable != 1 {
+		t.Errorf("Expected 1 spin available on Day 2 after completing 1st chore, got %d", dbStatusDay2After.SpinsAvailable)
 	}
-	if !dbStatus6.DoubleCoinsUsed {
-		t.Errorf("Expected double_coins_used to be true after 6th task")
+
+	// Kid can spin the Day 2 earned spin
+	reqKidSpinDay2, _ := http.NewRequest("POST", wheelSpinURL, nil)
+	reqKidSpinDay2.Header.Set("Authorization", "Bearer "+tokenKid)
+	rrKidSpinDay2 := performRequest(t, reqKidSpinDay2, http.StatusOK)
+	var spinResDay2 model.WheelSpinResponse
+	json.NewDecoder(rrKidSpinDay2.Body).Decode(&spinResDay2)
+	if spinResDay2.SpinsRemaining != 0 {
+		t.Errorf("Expected 0 spins remaining after Day 2 spin, got %d", spinResDay2.SpinsRemaining)
 	}
+
+	// Spinning again on Day 2 without completing 4 chores fails
+	reqKidSpinDay2Second, _ := http.NewRequest("POST", wheelSpinURL, nil)
+	reqKidSpinDay2Second.Header.Set("Authorization", "Bearer "+tokenKid)
+	performRequest(t, reqKidSpinDay2Second, http.StatusBadRequest)
 }
 
 func TestUserProfileAvatar(t *testing.T) {
@@ -890,6 +970,269 @@ func TestUserProfileAvatar(t *testing.T) {
 	if admin2.ProfileImageURL == nil || *admin2.ProfileImageURL != "🦁" {
 		t.Errorf("Expected login response to include updated profile image URL '🦁', got %v", admin2.ProfileImageURL)
 	}
+}
+
+func TestActivityHistoryUserIsolation(t *testing.T) {
+	// 1. Sign up admin
+	adminSignup := model.SignUpRequest{ChoreGroupName: "HistoryFamily", Username: "hist_admin", Password: "Password123!"}
+	adminBody, _ := json.Marshal(adminSignup)
+	reqAdminSignup, _ := http.NewRequest("POST", "/api/signup", bytes.NewBuffer(adminBody))
+	performRequest(t, reqAdminSignup, http.StatusCreated)
+
+	adminLogin := model.LoginRequest{Username: "hist_admin", Password: "Password123!"}
+	adminLoginBody, _ := json.Marshal(adminLogin)
+	reqAdminLogin, _ := http.NewRequest("POST", "/api/login", bytes.NewBuffer(adminLoginBody))
+	rrAdminLogin := performRequest(t, reqAdminLogin, http.StatusOK)
+	var admin model.LoginResponse
+	json.NewDecoder(rrAdminLogin.Body).Decode(&admin)
+	var tokenAdmin string
+	for _, c := range rrAdminLogin.Result().Cookies() {
+		if c.Name == "token" {
+			tokenAdmin = c.Value
+		}
+	}
+
+	// 2. Add Kid A and Kid B
+	addKidAReq := model.AddUserRequest{ChoreGroupName: "HistoryFamily", Username: "kid_a", Password: "pw", UserRole: "user"}
+	addKidABody, _ := json.Marshal(addKidAReq)
+	reqAddKidA, _ := http.NewRequest("POST", "/api/users", bytes.NewBuffer(addKidABody))
+	performRequest(t, reqAddKidA, http.StatusCreated)
+
+	addKidBReq := model.AddUserRequest{ChoreGroupName: "HistoryFamily", Username: "kid_b", Password: "pw", UserRole: "user"}
+	addKidBBody, _ := json.Marshal(addKidBReq)
+	reqAddKidB, _ := http.NewRequest("POST", "/api/users", bytes.NewBuffer(addKidBBody))
+	performRequest(t, reqAddKidB, http.StatusCreated)
+
+	// Login Kid A
+	loginKidABody, _ := json.Marshal(model.LoginRequest{Username: "kid_a", Password: "pw"})
+	reqLoginKidA, _ := http.NewRequest("POST", "/api/login", bytes.NewBuffer(loginKidABody))
+	rrLoginKidA := performRequest(t, reqLoginKidA, http.StatusOK)
+	var kidA model.LoginResponse
+	json.NewDecoder(rrLoginKidA.Body).Decode(&kidA)
+	var tokenKidA string
+	for _, c := range rrLoginKidA.Result().Cookies() {
+		if c.Name == "token" {
+			tokenKidA = c.Value
+		}
+	}
+
+	// Login Kid B
+	loginKidBBody, _ := json.Marshal(model.LoginRequest{Username: "kid_b", Password: "pw"})
+	reqLoginKidB, _ := http.NewRequest("POST", "/api/login", bytes.NewBuffer(loginKidBBody))
+	rrLoginKidB := performRequest(t, reqLoginKidB, http.StatusOK)
+	var kidB model.LoginResponse
+	json.NewDecoder(rrLoginKidB.Body).Decode(&kidB)
+	var tokenKidB string
+	for _, c := range rrLoginKidB.Result().Cookies() {
+		if c.Name == "token" {
+			tokenKidB = c.Value
+		}
+	}
+
+	// 3. Kid A completes a task
+	taskReqA := model.CreateTaskRequest{Title: "Kid A Chore", Type: "individual", PointsReward: 5}
+	taskBodyA, _ := json.Marshal(taskReqA)
+	reqCreateA, _ := http.NewRequest("POST", fmt.Sprintf("/api/choregroups/%s/tasks", admin.ChoreGroupID), bytes.NewBuffer(taskBodyA))
+	reqCreateA.Header.Set("Authorization", "Bearer "+tokenAdmin)
+	rrCreateA := performRequest(t, reqCreateA, http.StatusCreated)
+	var taskA model.Task
+	json.NewDecoder(rrCreateA.Body).Decode(&taskA)
+
+	reqSubA, _ := http.NewRequest("POST", fmt.Sprintf("/api/choregroups/%s/tasks/%s/submit", admin.ChoreGroupID, taskA.ID), nil)
+	reqSubA.Header.Set("Authorization", "Bearer "+tokenKidA)
+	performRequest(t, reqSubA, http.StatusCreated)
+
+	approveBody, _ := json.Marshal(model.UpdateSubmissionRequest{Action: "approve"})
+	reqApproveA, _ := http.NewRequest("PUT", fmt.Sprintf("/api/choregroups/%s/tasks/%s/status", admin.ChoreGroupID, taskA.ID), bytes.NewBuffer(approveBody))
+	reqApproveA.Header.Set("Authorization", "Bearer "+tokenAdmin)
+	performRequest(t, reqApproveA, http.StatusNoContent)
+
+	// 4. Kid B completes a task
+	taskReqB := model.CreateTaskRequest{Title: "Kid B Chore", Type: "individual", PointsReward: 5}
+	taskBodyB, _ := json.Marshal(taskReqB)
+	reqCreateB, _ := http.NewRequest("POST", fmt.Sprintf("/api/choregroups/%s/tasks", admin.ChoreGroupID), bytes.NewBuffer(taskBodyB))
+	reqCreateB.Header.Set("Authorization", "Bearer "+tokenAdmin)
+	rrCreateB := performRequest(t, reqCreateB, http.StatusCreated)
+	var taskB model.Task
+	json.NewDecoder(rrCreateB.Body).Decode(&taskB)
+
+	reqSubB, _ := http.NewRequest("POST", fmt.Sprintf("/api/choregroups/%s/tasks/%s/submit", admin.ChoreGroupID, taskB.ID), nil)
+	reqSubB.Header.Set("Authorization", "Bearer "+tokenKidB)
+	performRequest(t, reqSubB, http.StatusCreated)
+
+	reqApproveB, _ := http.NewRequest("PUT", fmt.Sprintf("/api/choregroups/%s/tasks/%s/status", admin.ChoreGroupID, taskB.ID), bytes.NewBuffer(approveBody))
+	reqApproveB.Header.Set("Authorization", "Bearer "+tokenAdmin)
+	performRequest(t, reqApproveB, http.StatusNoContent)
+
+	// 5. Admin deletes a task
+	taskReqDel := model.CreateTaskRequest{Title: "Admin Deleted Chore", Type: "individual", PointsReward: 2}
+	taskBodyDel, _ := json.Marshal(taskReqDel)
+	reqCreateDel, _ := http.NewRequest("POST", fmt.Sprintf("/api/choregroups/%s/tasks", admin.ChoreGroupID), bytes.NewBuffer(taskBodyDel))
+	reqCreateDel.Header.Set("Authorization", "Bearer "+tokenAdmin)
+	rrCreateDel := performRequest(t, reqCreateDel, http.StatusCreated)
+	var taskDel model.Task
+	json.NewDecoder(rrCreateDel.Body).Decode(&taskDel)
+
+	reqDel, _ := http.NewRequest("DELETE", fmt.Sprintf("/api/choregroups/%s/tasks/%s", admin.ChoreGroupID, taskDel.ID), nil)
+	reqDel.Header.Set("Authorization", "Bearer "+tokenAdmin)
+	performRequest(t, reqDel, http.StatusNoContent)
+
+	// 6. Verify Kid A's GET /history/recent sees ONLY Kid A's actions
+	reqHistRecentA, _ := http.NewRequest("GET", fmt.Sprintf("/api/choregroups/%s/history/recent", admin.ChoreGroupID), nil)
+	reqHistRecentA.Header.Set("Authorization", "Bearer "+tokenKidA)
+	rrHistRecentA := performRequest(t, reqHistRecentA, http.StatusOK)
+	var eventsRecentA []model.ActivityEvent
+	json.NewDecoder(rrHistRecentA.Body).Decode(&eventsRecentA)
+
+	if len(eventsRecentA) != 1 {
+		t.Fatalf("Expected Kid A to see exactly 1 recent event, got %d", len(eventsRecentA))
+	}
+	if eventsRecentA[0].UserUsername != "kid_a" {
+		t.Errorf("Expected Kid A's recent event to be by 'kid_a', got '%s'", eventsRecentA[0].UserUsername)
+	}
+
+	// 7. Verify Kid A's GET /history (Show more..) sees ONLY Kid A's actions
+	reqHistFullA, _ := http.NewRequest("GET", fmt.Sprintf("/api/choregroups/%s/history", admin.ChoreGroupID), nil)
+	reqHistFullA.Header.Set("Authorization", "Bearer "+tokenKidA)
+	rrHistFullA := performRequest(t, reqHistFullA, http.StatusOK)
+	var histFullA model.HistoryResponse
+	json.NewDecoder(rrHistFullA.Body).Decode(&histFullA)
+
+	if histFullA.TotalCount != 1 {
+		t.Fatalf("Expected Kid A to have total count 1 in full history, got %d", histFullA.TotalCount)
+	}
+	for _, e := range histFullA.Events {
+		if e.UserUsername != "kid_a" {
+			t.Errorf("Expected Kid A's full history to contain only 'kid_a' events, found '%s'", e.UserUsername)
+		}
+	}
+
+	// 8. Verify Kid B's GET /history/recent sees ONLY Kid B's actions
+	reqHistRecentB, _ := http.NewRequest("GET", fmt.Sprintf("/api/choregroups/%s/history/recent", admin.ChoreGroupID), nil)
+	reqHistRecentB.Header.Set("Authorization", "Bearer "+tokenKidB)
+	rrHistRecentB := performRequest(t, reqHistRecentB, http.StatusOK)
+	var eventsRecentB []model.ActivityEvent
+	json.NewDecoder(rrHistRecentB.Body).Decode(&eventsRecentB)
+
+	if len(eventsRecentB) != 1 {
+		t.Fatalf("Expected Kid B to see exactly 1 recent event, got %d", len(eventsRecentB))
+	}
+	if eventsRecentB[0].UserUsername != "kid_b" {
+		t.Errorf("Expected Kid B's recent event to be by 'kid_b', got '%s'", eventsRecentB[0].UserUsername)
+	}
+
+	// 9. Verify Kid B's GET /history (Show more..) sees ONLY Kid B's actions
+	reqHistFullB, _ := http.NewRequest("GET", fmt.Sprintf("/api/choregroups/%s/history", admin.ChoreGroupID), nil)
+	reqHistFullB.Header.Set("Authorization", "Bearer "+tokenKidB)
+	rrHistFullB := performRequest(t, reqHistFullB, http.StatusOK)
+	var histFullB model.HistoryResponse
+	json.NewDecoder(rrHistFullB.Body).Decode(&histFullB)
+
+	if histFullB.TotalCount != 1 {
+		t.Fatalf("Expected Kid B to have total count 1 in full history, got %d", histFullB.TotalCount)
+	}
+	for _, e := range histFullB.Events {
+		if e.UserUsername != "kid_b" {
+			t.Errorf("Expected Kid B's full history to contain only 'kid_b' events, found '%s'", e.UserUsername)
+		}
+	}
+
+	// 10. Verify Admin's GET /history/recent sees all household events (3: Kid A, Kid B, Admin task deleted)
+	reqHistRecentAdmin, _ := http.NewRequest("GET", fmt.Sprintf("/api/choregroups/%s/history/recent", admin.ChoreGroupID), nil)
+	reqHistRecentAdmin.Header.Set("Authorization", "Bearer "+tokenAdmin)
+	rrHistRecentAdmin := performRequest(t, reqHistRecentAdmin, http.StatusOK)
+	var eventsRecentAdmin []model.ActivityEvent
+	json.NewDecoder(rrHistRecentAdmin.Body).Decode(&eventsRecentAdmin)
+
+	if len(eventsRecentAdmin) != 3 {
+		t.Fatalf("Expected Admin to see 3 recent events, got %d", len(eventsRecentAdmin))
+	}
+}
+
+func TestAdminCosmeticAccess(t *testing.T) {
+	clearAllTables(t)
+
+	// 1. Register Admin
+	signupAdmin := model.SignUpRequest{ChoreGroupName: "Cosmetic Family", Username: "cosmetic_admin", Password: "password123"}
+	signupBody, _ := json.Marshal(signupAdmin)
+	reqAdminSignup, _ := http.NewRequest("POST", "/api/signup", bytes.NewBuffer(signupBody))
+	performRequest(t, reqAdminSignup, http.StatusCreated)
+
+	// Login Admin
+	loginReqAdmin := model.LoginRequest{Username: "cosmetic_admin", Password: "password123"}
+	loginBodyAdmin, _ := json.Marshal(loginReqAdmin)
+	reqLoginAdmin, _ := http.NewRequest("POST", "/api/login", bytes.NewBuffer(loginBodyAdmin))
+	rrLoginAdmin := performRequest(t, reqLoginAdmin, http.StatusOK)
+	var adminLogin model.LoginResponse
+	json.NewDecoder(rrLoginAdmin.Body).Decode(&adminLogin)
+
+	var tokenAdmin string
+	for _, c := range rrLoginAdmin.Result().Cookies() {
+		if c.Name == "token" {
+			tokenAdmin = c.Value
+		}
+	}
+
+	// Verify Admin has all 8 avatar frames and 8 backgrounds
+	if len(adminLogin.UnlockedAvatarFrames) != 8 {
+		t.Fatalf("Expected admin to have 8 unlocked avatar frames, got %d", len(adminLogin.UnlockedAvatarFrames))
+	}
+	if len(adminLogin.UnlockedBackgrounds) != 8 {
+		t.Fatalf("Expected admin to have 8 unlocked backgrounds, got %d", len(adminLogin.UnlockedBackgrounds))
+	}
+
+	// 2. Admin equips surprise avatar frame (royal_crown)
+	frameReq := model.UpdateAvatarFrameRequest{AvatarFrame: "royal_crown"}
+	frameBody, _ := json.Marshal(frameReq)
+	reqUpdateFrame, _ := http.NewRequest("PUT", fmt.Sprintf("/api/choregroups/%s/members/%s/avatar-frame", adminLogin.ChoreGroupID, adminLogin.UserID), bytes.NewBuffer(frameBody))
+	reqUpdateFrame.Header.Set("Authorization", "Bearer "+tokenAdmin)
+	performRequest(t, reqUpdateFrame, http.StatusOK)
+
+	// Admin equips surprise points background (fire_dragon)
+	bgReq := model.UpdatePointsBackgroundRequest{Background: "fire_dragon"}
+	bgBody, _ := json.Marshal(bgReq)
+	reqUpdateBg, _ := http.NewRequest("PUT", fmt.Sprintf("/api/choregroups/%s/members/%s/points-background", adminLogin.ChoreGroupID, adminLogin.UserID), bytes.NewBuffer(bgBody))
+	reqUpdateBg.Header.Set("Authorization", "Bearer "+tokenAdmin)
+	performRequest(t, reqUpdateBg, http.StatusOK)
+
+	// 3. Register Kid (role: user)
+	addUserReq := model.AddUserRequest{ChoreGroupName: "Cosmetic Family", Username: "cosmetic_kid", Password: "password123", UserRole: "user"}
+	addUserBody, _ := json.Marshal(addUserReq)
+	reqAddKid, _ := http.NewRequest("POST", "/api/users", bytes.NewBuffer(addUserBody))
+	performRequest(t, reqAddKid, http.StatusCreated)
+
+	// Login Kid
+	loginReqKid := model.LoginRequest{Username: "cosmetic_kid", Password: "password123"}
+	loginBodyKid, _ := json.Marshal(loginReqKid)
+	reqLoginKid, _ := http.NewRequest("POST", "/api/login", bytes.NewBuffer(loginBodyKid))
+	rrLoginKid := performRequest(t, reqLoginKid, http.StatusOK)
+	var kidLogin model.LoginResponse
+	json.NewDecoder(rrLoginKid.Body).Decode(&kidLogin)
+
+	var tokenKid string
+	for _, c := range rrLoginKid.Result().Cookies() {
+		if c.Name == "token" {
+			tokenKid = c.Value
+		}
+	}
+
+	// Verify Kid has default cosmetics
+	if len(kidLogin.UnlockedAvatarFrames) != 1 || kidLogin.UnlockedAvatarFrames[0] != "none" {
+		t.Fatalf("Expected kid to only have 'none' frame, got %v", kidLogin.UnlockedAvatarFrames)
+	}
+	if len(kidLogin.UnlockedBackgrounds) != 3 {
+		t.Fatalf("Expected kid to only have 3 default backgrounds, got %d", len(kidLogin.UnlockedBackgrounds))
+	}
+
+	// Kid attempts to equip surprise frame without unlocking it -> should fail
+	reqKidFrame, _ := http.NewRequest("PUT", fmt.Sprintf("/api/choregroups/%s/members/%s/avatar-frame", kidLogin.ChoreGroupID, kidLogin.UserID), bytes.NewBuffer(frameBody))
+	reqKidFrame.Header.Set("Authorization", "Bearer "+tokenKid)
+	performRequest(t, reqKidFrame, http.StatusBadRequest)
+
+	// Kid attempts to equip surprise background without unlocking it -> should fail
+	reqKidBg, _ := http.NewRequest("PUT", fmt.Sprintf("/api/choregroups/%s/members/%s/points-background", kidLogin.ChoreGroupID, kidLogin.UserID), bytes.NewBuffer(bgBody))
+	reqKidBg.Header.Set("Authorization", "Bearer "+tokenKid)
+	performRequest(t, reqKidBg, http.StatusBadRequest)
 }
 
 

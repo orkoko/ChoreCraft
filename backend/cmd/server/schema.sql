@@ -97,8 +97,9 @@ ALTER TABLE tasks ADD COLUMN IF NOT EXISTS parent_task_id UUID REFERENCES tasks(
 ALTER TABLE tasks ADD COLUMN IF NOT EXISTS icon_url TEXT;
 ALTER TABLE rewards ADD COLUMN IF NOT EXISTS icon_url TEXT;
 
--- Migration to support household-level AI generated content language
+-- Migration to support household-level AI generated content language and custom instructions
 ALTER TABLE choregroups ADD COLUMN IF NOT EXISTS ai_language VARCHAR(10) NOT NULL DEFAULT 'he';
+ALTER TABLE choregroups ADD COLUMN IF NOT EXISTS ai_instructions TEXT NOT NULL DEFAULT '';
 
 -- Migration to support daily bonuses and lucky wheel
 CREATE TABLE IF NOT EXISTS user_daily_progress (
@@ -111,14 +112,66 @@ CREATE TABLE IF NOT EXISTS user_daily_progress (
     spins_used INTEGER NOT NULL DEFAULT 0,
     double_coins_active BOOLEAN NOT NULL DEFAULT FALSE,
     double_coins_used BOOLEAN NOT NULL DEFAULT FALSE,
+    surprise_claimed BOOLEAN NOT NULL DEFAULT FALSE,
     CONSTRAINT user_daily_progress_user_date_key UNIQUE (user_id, date)
 );
+
+ALTER TABLE user_daily_progress ADD COLUMN IF NOT EXISTS surprise_claimed BOOLEAN NOT NULL DEFAULT FALSE;
 
 -- Migration to track first-time login welcome wheel spin for kids
 ALTER TABLE users ADD COLUMN IF NOT EXISTS has_claimed_welcome_spin BOOLEAN NOT NULL DEFAULT FALSE;
 
 -- Migration to support user profile images and avatars
 ALTER TABLE users ADD COLUMN IF NOT EXISTS profile_image_url TEXT;
+
+-- Migration to support custom points background themes and lucky wheel surprise unlocks
+ALTER TABLE users ADD COLUMN IF NOT EXISTS points_background VARCHAR(100) NOT NULL DEFAULT 'default';
+ALTER TABLE users ADD COLUMN IF NOT EXISTS unlocked_backgrounds JSONB NOT NULL DEFAULT '["default", "autumn_leaves", "golden_stars"]'::jsonb;
+
+-- Migration to support customizable avatar frames
+ALTER TABLE users ADD COLUMN IF NOT EXISTS avatar_frame VARCHAR(100) NOT NULL DEFAULT 'none';
+ALTER TABLE users ADD COLUMN IF NOT EXISTS unlocked_avatar_frames JSONB NOT NULL DEFAULT '["none"]'::jsonb;
+
+-- Ensure all existing and future admin accounts have full access to all cosmetic skins
+UPDATE users
+SET unlocked_avatar_frames = '["none", "golden_sparkle", "fire_flame", "cosmic_nebula", "emerald_nature", "rainbow_wave", "royal_crown", "neon_cyber"]'::jsonb,
+    unlocked_backgrounds = '["default", "autumn_leaves", "golden_stars", "cherry_blossom", "cosmic_galaxy", "emerald_nature", "candy_party", "fire_dragon"]'::jsonb
+WHERE role = 'admin';
+
+
+-- Activity History & Audit Trail for Households
+CREATE TABLE IF NOT EXISTS activity_history (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    choregroup_id UUID NOT NULL REFERENCES choregroups(id) ON DELETE CASCADE,
+    user_id UUID REFERENCES users(id) ON DELETE SET NULL,
+    user_username VARCHAR(255) NOT NULL DEFAULT '',
+    target_user_id UUID REFERENCES users(id) ON DELETE SET NULL,
+    target_username VARCHAR(255) NOT NULL DEFAULT '',
+    activity_type VARCHAR(100) NOT NULL,
+    title VARCHAR(255) NOT NULL,
+    description TEXT NOT NULL,
+    metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_activity_history_group_created ON activity_history(choregroup_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_activity_history_user ON activity_history(choregroup_id, user_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_activity_history_target ON activity_history(choregroup_id, target_user_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_activity_history_type ON activity_history(choregroup_id, activity_type, created_at DESC);
+
+-- Uploads binary storage table (PostgreSQL BYTEA repository)
+CREATE TABLE IF NOT EXISTS uploads (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    filename VARCHAR(255) NOT NULL,
+    mime_type VARCHAR(100) NOT NULL,
+    data BYTEA NOT NULL,
+    size_bytes BIGINT NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_uploads_filename ON uploads(filename);
+
+
 
 
 

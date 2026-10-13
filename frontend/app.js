@@ -6,6 +6,9 @@
 let currentSession = null; // Contains user_id, username, role, choregroup_id, choregroup_name
 let activeTasks = [];
 
+const ALL_AVATAR_FRAME_IDS = ["none", "golden_sparkle", "fire_flame", "cosmic_nebula", "emerald_nature", "rainbow_wave", "royal_crown", "neon_cyber"];
+const ALL_POINTS_THEME_IDS = ["default", "autumn_leaves", "golden_stars", "cherry_blossom", "cosmic_galaxy", "emerald_nature", "candy_party", "fire_dragon"];
+
 // Resolve API base URL dynamically based on page loading domain
 function getApiBase() {
   if (window.location.protocol === 'file:') {
@@ -47,14 +50,14 @@ function resolveIconUrl(url) {
 }
 
 // Render icon element (custom image URL if provided, otherwise fallback emoji)
-// Render icon element (custom image URL if provided, otherwise fallback emoji)
 function renderItemIcon(item, fallbackEmoji, title) {
   if (item && item.icon_url) {
     const src = resolveIconUrl(item.icon_url);
     const safeEmoji = escapeHTML(fallbackEmoji || "📋");
-    const safeTitle = escapeHTML(title || item.title || item.name || "");
+    const rawTitle = title || (item.title ? parseChoreTitle(item.title).title : (item.name ? parseChoreTitle(item.name).title : ""));
+    const safeTitle = escapeHTML(rawTitle);
     const safeSrc = escapeHTML(src);
-    return `<img src="${safeSrc}" class="card-icon-img zoomable-photo" alt="photo" onerror="this.onerror=null; this.parentElement.innerHTML='${safeEmoji}';" style="cursor: pointer;" onclick="event.stopPropagation(); openImageModal('${safeSrc}', '${safeTitle}');" title="Click to enlarge photo">`;
+    return `<img src="${safeSrc}" class="card-icon-img zoomable-photo" alt="${safeTitle}" data-title="${safeTitle}" onerror="this.onerror=null; this.parentElement.innerHTML='${safeEmoji}';" style="cursor: pointer;" onclick="event.stopPropagation(); openImageModal('${safeSrc}', '${safeTitle}');" title="${safeTitle ? `Click to enlarge: ${safeTitle}` : 'Click to enlarge photo'}">`;
   }
   return fallbackEmoji || "📋";
 }
@@ -72,12 +75,24 @@ function openImageModal(src, title) {
 
   if (!modal) return;
 
+  // Extract clean display title, never show generic "photo"
+  let displayTitle = "";
+  if (title && typeof title === "string") {
+    const trimmed = title.trim();
+    const lower = trimmed.toLowerCase();
+    if (lower && lower !== "photo" && lower !== "enlarged photo" && lower !== "icon preview" && lower !== "ai item preview") {
+      const parsed = parseChoreTitle(trimmed);
+      displayTitle = parsed.title || trimmed;
+    }
+  }
+
   if (titleEl) {
-    if (title && title.trim()) {
-      titleEl.textContent = title.trim();
+    if (displayTitle) {
+      titleEl.textContent = displayTitle;
       titleEl.style.display = "block";
       if (spacerEl) spacerEl.style.display = "block";
     } else {
+      titleEl.textContent = "";
       titleEl.style.display = "none";
       if (spacerEl) spacerEl.style.display = "none";
     }
@@ -85,6 +100,7 @@ function openImageModal(src, title) {
 
   if (img) {
     img.src = src;
+    img.alt = displayTitle || "Enlarged Photo";
     img.style.display = "block";
   }
 
@@ -137,7 +153,13 @@ function handleChoreTap(e) {
   const photoContainer = e.target.closest("[data-photo-url]");
   if (photoContainer && photoContainer.dataset.photoUrl && photoContainer.dataset.photoUrl.trim()) {
     const src = photoContainer.dataset.photoUrl.trim();
-    const title = photoContainer.dataset.choreTitle || "";
+    let title = photoContainer.dataset.choreTitle || photoContainer.dataset.title || "";
+    if (!title || title.toLowerCase() === "photo") {
+      const h3 = photoContainer.querySelector("h3, .sub-chore span:nth-child(2)");
+      if (h3 && h3.textContent) {
+        title = parseChoreTitle(h3.textContent).title;
+      }
+    }
     e.stopPropagation();
     e.preventDefault();
     openImageModal(src, title);
@@ -150,7 +172,29 @@ function handleChoreTap(e) {
     if (src) {
       e.stopPropagation();
       e.preventDefault();
-      openImageModal(src, e.target.getAttribute("alt") || "");
+      let title = e.target.getAttribute("data-title") || "";
+      if (!title || title.toLowerCase() === "photo") {
+        const alt = e.target.getAttribute("alt") || "";
+        if (alt && alt.toLowerCase() !== "photo" && alt.toLowerCase() !== "enlarged photo") {
+          title = alt;
+        }
+      }
+      if (!title || title.toLowerCase() === "photo") {
+        const container = e.target.closest("[data-chore-title], [data-title]");
+        if (container) {
+          title = container.dataset.choreTitle || container.dataset.title || "";
+        }
+      }
+      if (!title || title.toLowerCase() === "photo") {
+        const card = e.target.closest(".chore-card, .reward-card, .submission-item, .pending-item");
+        if (card) {
+          const h3 = card.querySelector("h3, .sub-chore span:nth-child(2)");
+          if (h3 && h3.textContent) {
+            title = parseChoreTitle(h3.textContent).title;
+          }
+        }
+      }
+      openImageModal(src, title);
       return;
     }
   }
@@ -417,20 +461,30 @@ function setPointsSelectValue(val) {
   const options = document.querySelectorAll(".custom-select-option");
   if (!container || !trigger || !hiddenInput) return;
   
-  hiddenInput.value = val;
+  const isAuto = (val === "auto" || val === "" || val === 0 || val === "0" || val === null || val === undefined);
+  hiddenInput.value = isAuto ? "auto" : val;
   options.forEach(opt => {
-    if (opt.getAttribute("data-value") === String(val)) {
+    const optVal = opt.getAttribute("data-value");
+    if ((isAuto && optVal === "auto") || (!isAuto && optVal === String(val))) {
       opt.classList.add("selected");
     } else {
       opt.classList.remove("selected");
     }
   });
   
+  if (isAuto) {
+    trigger.innerHTML = `
+      <span>✨ AI Estimate <span class="points-coin">🤖</span></span>
+      <span class="arrow">▼</span>
+    `;
+    return;
+  }
+  
   const isCooperative = container.classList.contains("coop-theme");
   const coinClass = isCooperative ? "points-coin coop-theme" : "points-coin";
   const coinEmoji = isCooperative ? "🐱🐱" : "🐱";
   trigger.innerHTML = `
-    <span>+${val} <span class="${coinClass}" id="chore-points-coin">${coinEmoji}</span></span>
+    <span>+${val} <span class="${coinClass}">${coinEmoji}</span></span>
     <span class="arrow">▼</span>
   `;
 }
@@ -545,6 +599,10 @@ document.addEventListener("DOMContentLoaded", async () => {
   const savedSession = localStorage.getItem("chorecraft_session");
   if (savedSession) {
     currentSession = JSON.parse(savedSession);
+    if (currentSession && currentSession.role === "admin") {
+      currentSession.unlocked_avatar_frames = [...ALL_AVATAR_FRAME_IDS];
+      currentSession.unlocked_backgrounds = [...ALL_POINTS_THEME_IDS];
+    }
     
     // Validate the session is still alive against the server
     // by hitting a protected endpoint. If it fails (401/network error),
@@ -820,7 +878,9 @@ async function handleLogin(e) {
       role: res.role,
       choregroup_id: res.choregroup_id,
       choregroup_name: res.role === "admin" ? "My Household" : "User Space",
-      profile_image_url: res.profile_image_url || null
+      profile_image_url: res.profile_image_url || null,
+      avatar_frame: res.avatar_frame || "none",
+      unlocked_avatar_frames: res.unlocked_avatar_frames || ["none"]
     });
     closeModal("auth-modal");
     showToast(`Welcome back ${res.username || username}!`);
@@ -830,13 +890,22 @@ async function handleLogin(e) {
 }
 
 function setSession(userObj) {
+  const isAdmin = userObj.role === "admin";
   currentSession = {
     user_id: userObj.id || userObj.user_id,
+    id: userObj.id || userObj.user_id,
     username: userObj.username,
     role: userObj.role,
     choregroup_id: userObj.choregroup_id,
     choregroup_name: userObj.choregroup_name,
-    profile_image_url: userObj.profile_image_url || null
+    profile_image_url: userObj.profile_image_url || null,
+    avatar_frame: userObj.avatar_frame || "none",
+    unlocked_avatar_frames: isAdmin ? [...ALL_AVATAR_FRAME_IDS] : (userObj.unlocked_avatar_frames || ["none"]),
+    points: userObj.points || 0,
+    cooperative_points: userObj.cooperative_points || 0,
+    points_background: userObj.points_background || "default",
+    unlocked_backgrounds: isAdmin ? [...ALL_POINTS_THEME_IDS] : (userObj.unlocked_backgrounds || ["default", "autumn_leaves", "golden_stars"]),
+    ai_instructions: userObj.ai_instructions || ""
   };
   localStorage.setItem("chorecraft_session", JSON.stringify(currentSession));
   connectSSE();
@@ -879,13 +948,28 @@ function logout() {
 
 function syncSessionFromStats(statsData) {
   if (!currentSession || !statsData || !statsData.users) return;
-  const me = statsData.users.find(u => u.id === currentSession.user_id);
+  const currentUid = currentSession.user_id || currentSession.id;
+  const me = statsData.users.find(u => u.id === currentUid);
   if (me) {
     currentSession.notifications_viewed = me.notifications_viewed;
     let changed = false;
     if (me.profile_image_url !== undefined && me.profile_image_url !== currentSession.profile_image_url) {
       currentSession.profile_image_url = me.profile_image_url;
       changed = true;
+    }
+    if (me.avatar_frame !== undefined && me.avatar_frame !== currentSession.avatar_frame) {
+      currentSession.avatar_frame = me.avatar_frame;
+      changed = true;
+    }
+    if (me.unlocked_avatar_frames !== undefined) {
+      currentSession.unlocked_avatar_frames = (currentSession.role === "admin") ? [...ALL_AVATAR_FRAME_IDS] : me.unlocked_avatar_frames;
+    }
+    if (me.points_background !== undefined && me.points_background !== currentSession.points_background) {
+      currentSession.points_background = me.points_background;
+      changed = true;
+    }
+    if (me.unlocked_backgrounds !== undefined) {
+      currentSession.unlocked_backgrounds = (currentSession.role === "admin") ? [...ALL_POINTS_THEME_IDS] : me.unlocked_backgrounds;
     }
     localStorage.setItem("chorecraft_session", JSON.stringify(currentSession));
     if (changed) {
@@ -974,28 +1058,34 @@ async function fetchAndSyncDailyBonus() {
   return null;
 }
 
-function renderAvatarHtml(profileImageUrl, isAdmin = false, customClass = "") {
+function renderAvatarHtml(profileImageUrl, isAdmin = false, customClass = "", avatarFrame = "none") {
   const isImage = profileImageUrl && (profileImageUrl.startsWith("/") || profileImageUrl.startsWith("http"));
   const crownHtml = isAdmin ? '<span class="avatar-crown">👑</span>' : '';
-  
+  let inner = '';
   if (isImage) {
-    return `<span class="member-avatar ${customClass} ${isAdmin ? 'admin-avatar' : ''}"><img src="${escapeHTML(profileImageUrl)}" class="member-avatar-img" alt="Avatar" />${crownHtml}</span>`;
+    inner = `<span class="member-avatar ${customClass} ${isAdmin ? 'admin-avatar' : ''}"><img src="${escapeHTML(profileImageUrl)}" class="member-avatar-img" alt="Avatar" style="width:100%;height:100%;max-width:100%;max-height:100%;object-fit:cover;border-radius:50%;display:block;" />${crownHtml}</span>`;
   } else if (profileImageUrl && profileImageUrl.trim()) {
-    return `<span class="member-avatar ${customClass} ${isAdmin ? 'admin-avatar' : ''}"><span class="avatar-emoji">${escapeHTML(profileImageUrl)}</span>${crownHtml}</span>`;
+    inner = `<span class="member-avatar ${customClass} ${isAdmin ? 'admin-avatar' : ''}"><span class="avatar-emoji">${escapeHTML(profileImageUrl)}</span>${crownHtml}</span>`;
+  } else {
+    inner = `<span class="member-avatar ${customClass} ${isAdmin ? 'admin-avatar' : ''}">👤${crownHtml}</span>`;
   }
-  return `<span class="member-avatar ${customClass} ${isAdmin ? 'admin-avatar' : ''}">👤${crownHtml}</span>`;
+  const frameClass = (avatarFrame && avatarFrame !== 'none') ? `frame-${escapeHTML(avatarFrame)}` : 'frame-none';
+  return `<span class="avatar-frame-badge ${frameClass}">${inner}</span>`;
 }
 
-function renderMiniAvatar(profileImageUrl, isAdmin = false) {
+function renderMiniAvatar(profileImageUrl, isAdmin = false, avatarFrame = "none") {
   const isImage = profileImageUrl && (profileImageUrl.startsWith("/") || profileImageUrl.startsWith("http"));
   const crownHtml = isAdmin ? '<span class="mini-crown">👑</span>' : '';
-  
+  let inner = '';
   if (isImage) {
-    return `<span class="mini-avatar-wrap ${isAdmin ? 'admin-avatar' : ''}"><img src="${escapeHTML(profileImageUrl)}" class="mini-avatar-img" alt="Avatar" />${crownHtml}</span>`;
+    inner = `<span class="mini-avatar-wrap ${isAdmin ? 'admin-avatar' : ''}" style="width:100%;height:100%;max-width:100%;max-height:100%;"><img src="${escapeHTML(profileImageUrl)}" class="mini-avatar-img" alt="Avatar" style="width:100%;height:100%;max-width:100%;max-height:100%;object-fit:cover;border-radius:50%;display:block;" />${crownHtml}</span>`;
   } else if (profileImageUrl && profileImageUrl.trim()) {
-    return `<span class="mini-avatar-wrap ${isAdmin ? 'admin-avatar' : ''}">${escapeHTML(profileImageUrl)}${crownHtml}</span>`;
+    inner = `<span class="mini-avatar-wrap ${isAdmin ? 'admin-avatar' : ''}">${escapeHTML(profileImageUrl)}${crownHtml}</span>`;
+  } else {
+    inner = `<span class="mini-avatar-wrap ${isAdmin ? 'admin-avatar' : ''}">👤${crownHtml}</span>`;
   }
-  return `<span class="mini-avatar-wrap ${isAdmin ? 'admin-avatar' : ''}">👤${crownHtml}</span>`;
+  const frameClass = (avatarFrame && avatarFrame !== 'none') ? `frame-${escapeHTML(avatarFrame)}` : 'frame-none';
+  return `<span class="avatar-frame-badge ${frameClass}" style="width:100%;height:100%;max-width:100%;max-height:100%;">${inner}</span>`;
 }
 
 function updateHeaderAuthBtn() {
@@ -1004,10 +1094,14 @@ function updateHeaderAuthBtn() {
   
   const headerStats = document.getElementById("header-user-stats");
   const notificationCenter = document.getElementById("header-notification-center");
+  const historyCenter = document.getElementById("header-history-center");
   
   if (currentSession) {
     if (notificationCenter) {
       notificationCenter.style.display = "inline-block";
+    }
+    if (historyCenter) {
+      historyCenter.style.display = "inline-block";
     }
     const isKid = currentSession.role === "user";
     if (isKid) {
@@ -1016,8 +1110,12 @@ function updateHeaderAuthBtn() {
         : (typeof currentSession.spins_available === 'number' ? currentSession.spins_available : 0);
       updateHeaderWheelBadge(spins);
       if (headerStats) {
+        const theme = (currentSession && currentSession.points_background) || "default";
+        const decorHtml = getPointsBackgroundDecorHtml(theme);
+        const themeClass = theme !== "default" ? `theme-${escapeHTML(theme)}` : "";
         headerStats.innerHTML = `
-          <div class="user-coins-pill" title="My Coins &amp; Family Cooperative Coins">
+          <div class="user-coins-pill ${themeClass}" onclick="openPointsBackgroundModal()" title="Points Background Theme (Click to choose)">
+            ${decorHtml}
             <div class="coin-chip individual" id="header-coin-chip-individual" title="Personal Coins: ${currentSession.points || 0}">
               <span class="points-coin">🐱</span>
               <span class="coin-amount" id="header-coin-amount-individual">${currentSession.points || 0}</span>
@@ -1037,18 +1135,17 @@ function updateHeaderAuthBtn() {
         headerStats.style.display = "none";
       }
     }
+    const myFrame = (currentSession && currentSession.avatar_frame) || 'none';
+    const hasFrameClass = (myFrame && myFrame !== 'none') ? 'has-frame' : '';
     container.innerHTML = `
       <div class="user-dropdown-container" id="header-user-dropdown-container">
-        <button class="btn-user-trigger" id="user-trigger-btn" onclick="toggleUserDropdown(event)" title="${escapeHTML(currentSession.username)}" aria-label="User profile">
-          ${renderMiniAvatar(currentSession.profile_image_url, currentSession.role === 'admin')}
+        <button class="btn-user-trigger ${hasFrameClass}" id="user-trigger-btn" onclick="toggleUserDropdown(event)" title="${escapeHTML(currentSession.username)}" aria-label="User profile">
+          ${renderMiniAvatar(currentSession.profile_image_url, currentSession.role === 'admin', myFrame)}
         </button>
         <div class="user-dropdown-menu" id="user-dropdown-menu">
           <div class="user-dropdown-profile-header">
-            <div class="dropdown-avatar-display" onclick="openAvatarModal()" title="Click to change profile picture">
-              ${currentSession.profile_image_url && (currentSession.profile_image_url.startsWith('/') || currentSession.profile_image_url.startsWith('http'))
-                ? `<img src="${escapeHTML(currentSession.profile_image_url)}" class="mini-avatar-img" alt="Avatar" />`
-                : (currentSession.profile_image_url || '👤')}
-              ${currentSession.role === 'admin' ? '<span class="dropdown-crown">👑</span>' : ''}
+            <div class="dropdown-avatar-display" onclick="openAvatarModal()" title="Click to change profile picture or frame">
+              ${renderAvatarHtml(currentSession.profile_image_url, currentSession.role === 'admin', '', myFrame)}
             </div>
             <div class="user-dropdown-info-text">
               <strong>${escapeHTML(currentSession.username)}</strong>
@@ -1077,6 +1174,10 @@ function updateHeaderAuthBtn() {
               <option value="fr" ${getAiLanguage() === 'fr' ? 'selected' : ''}>French (Français)</option>
               <option value="de" ${getAiLanguage() === 'de' ? 'selected' : ''}>German (Deutsch)</option>
             </select>
+            <button class="dropdown-action-btn" onclick="openHouseholdAiModal()" style="margin-top: 8px; width: 100%; justify-content: flex-start; padding: 6px 8px; border-radius: 6px;">
+              <span style="font-size: 1.05rem; margin-right: 6px;">🤖</span>
+              <span>Household AI Rules</span>
+            </button>
           </div>
           ` : ''}
           <button class="dropdown-action-btn" onclick="openChangePasswordModal('${currentSession.id || currentSession.user_id}', '${escapeHTML(currentSession.username)}')">
@@ -1101,6 +1202,9 @@ function updateHeaderAuthBtn() {
     updateHeaderWheelBadge(0);
     if (notificationCenter) {
       notificationCenter.style.display = "none";
+    }
+    if (historyCenter) {
+      historyCenter.style.display = "none";
     }
     if (headerStats) {
       headerStats.style.display = "none";
@@ -1184,13 +1288,23 @@ async function renderParentDashboard() {
   const activeOnly = activeTasks.filter(t => t.status !== "done");
   
   activeOnly.sort((a, b) => {
+    // 1. Pending approval at top, then expired tasks, then other chores
+    const getTaskTier = (t) => {
+      if (t.status === "pending_approval") return 1;
+      if (t.status === "expired" || (t.status === "assigned" && t.is_expired)) return 2;
+      return 3;
+    };
+
+    const tierA = getTaskTier(a);
+    const tierB = getTaskTier(b);
+    if (tierA !== tierB) return tierA - tierB;
+
     if (a.is_mandatory !== b.is_mandatory) return a.is_mandatory ? -1 : 1;
 
     const aTimed = !!(a.status === "assigned" && a.expires_at);
     const bTimed = !!(b.status === "assigned" && b.expires_at);
     if (aTimed !== bTimed) return aTimed ? -1 : 1;
 
-    if (a.status !== b.status) return a.status === "assigned" ? -1 : 1;
     return 0;
   });
   
@@ -1223,32 +1337,41 @@ async function renderParentDashboard() {
       const card = document.createElement("div");
       card.id = `parent-task-${task.id}`;
       card.dataset.taskId = task.id;
-      card.className = `chore-card ${task.status === 'pending_approval' ? 'submitted' : ''} has-photo`;
-      
-      let statusHtml = "";
-      let extendHtml = "";
-      if (task.status === "pending_approval") {
-        statusHtml = `<div class="card-status-badge" title="Awaiting Admin Approval"><span>⏳</span></div>`;
-      } else if (task.status === "done") {
-        statusHtml = `<div class="card-status-badge" style="background-color: var(--success-green-light); color: var(--success-green); border-color: var(--success-green);"><span>💚 Completed</span></div>`;
-      } else if (task.status === "expired") {
-        statusHtml = `<div class="card-status-badge" style="background-color: #ffe3e3; color: #e03131; border-color: #ffa8a8;"><span>🚨 Expired</span></div>`;
-        extendHtml = `<button class="btn btn-outline btn-sm" onclick="handleExtendTask('${task.id}')" style="padding: 0.25rem 0.5rem; font-size: 0.8rem; height: auto;">⏳ Extend (+1h)</button>`;
+      if (iconUrl) {
+        card.dataset.photoUrl = iconUrl;
+        card.dataset.choreTitle = title;
       }
+      card.className = `chore-card ${task.status === 'pending_approval' ? 'submitted' : ''} ${iconUrl ? 'has-photo' : ''}`;
       
-      const controlsHtml = `
-        <div class="card-controls">
-          <button class="btn btn-outline btn-sm" onclick="openAddChoreModal('${task.id}')" title="Add Continuation Chore">🔗</button>
-          ${task.status !== "pending_approval" && task.status !== "expired" ? `<button class="btn btn-outline btn-sm" onclick="openEditChoreModal('${task.id}')">✏️</button>` : ''}
-          ${task.status === "expired" ? `<button class="btn btn-outline btn-sm" onclick="openEditChoreModal('${task.id}')">✏️</button>` : ''}
-          <button class="btn btn-outline btn-sm" style="color: var(--destructive-red); border-color: var(--destructive-red);" onclick="deleteChore('${task.id}')">🗑️</button>
-        </div>
-      `;
+      let statusLineHtml = "";
+      if (task.status === "expired") {
+        statusLineHtml = `
+          <div class="card-status-line" style="margin-top: 0.35rem; display: flex; align-items: center; gap: 0.35rem;">
+            <span class="card-status-badge-inline" style="background-color: #ffe3e3; color: #e03131; border: 1px solid #ffa8a8; font-size: 0.8rem; font-weight: 800; padding: 0.2rem 0.6rem; border-radius: var(--radius-sm); display: inline-flex; align-items: center; gap: 0.25rem;">
+              <span>🚨 Expired</span>
+            </span>
+          </div>
+        `;
+      } else if (task.status === "pending_approval") {
+        statusLineHtml = `
+          <div class="card-status-line" style="margin-top: 0.35rem; display: flex; align-items: center; gap: 0.35rem;">
+            <span class="card-status-badge-inline" style="background-color: var(--warning-amber-light); color: var(--warning-amber); border: 1px solid var(--warning-amber); font-size: 0.8rem; font-weight: 800; padding: 0.2rem 0.6rem; border-radius: var(--radius-sm); display: inline-flex; align-items: center; gap: 0.25rem;">
+              <span>⏳ Pending Approval</span>
+            </span>
+          </div>
+        `;
+      }
       
       let timerHtml = "";
       if (task.status === "assigned" && task.expires_at) {
         timerHtml = `<div class="task-timer-badge" data-expires="${task.expires_at}" data-mandatory="${task.is_mandatory}" style="margin-top: 0.5rem; font-size: 0.85rem; color: #e65100; font-weight: bold;">⏳ Loading timer...</div>`;
       }
+
+      const unexpireBtnHtml = task.status === "expired" ? `
+        <button class="btn btn-outline btn-sm btn-unexpire" onclick="handleRemoveExpiration('${task.id}')" title="Reactivate Chore (Remove Expiration)" aria-label="Reactivate Chore">
+          🔄
+        </button>
+      ` : '';
 
       const coinHtml = task.type === "cooperative" ? `<span class="points-coin coop-theme">🐱🐱</span>` : `<span class="points-coin">🐱</span>`;
       card.innerHTML = `
@@ -1259,6 +1382,7 @@ async function renderParentDashboard() {
             ${assigneeHtml}
             ${dependencyHtml}
             ${timerHtml}
+            ${statusLineHtml}
           </div>
         </div>
         <div class="card-actions-row">
@@ -1275,9 +1399,10 @@ async function renderParentDashboard() {
             ` : ''}
           </div>
           <div class="card-controls">
-            ${statusHtml}
-            ${extendHtml}
-            ${controlsHtml}
+            ${unexpireBtnHtml}
+            <button class="btn btn-outline btn-sm" onclick="openAddChoreModal('${task.id}')" title="Add Continuation Chore">🔗</button>
+            ${task.status !== "pending_approval" ? `<button class="btn btn-outline btn-sm" onclick="openEditChoreModal('${task.id}')" title="Edit Chore">✏️</button>` : ''}
+            <button class="btn btn-outline btn-sm" style="color: var(--destructive-red); border-color: var(--destructive-red);" onclick="deleteChore('${task.id}')" title="Delete Chore">🗑️</button>
           </div>
         </div>
       `;
@@ -1307,6 +1432,10 @@ async function renderParentDashboard() {
       const iconUrl = task.icon_url ? resolveIconUrl(task.icon_url) : '';
       
       const subItem = document.createElement("div");
+      if (iconUrl) {
+        subItem.dataset.photoUrl = iconUrl;
+        subItem.dataset.choreTitle = title;
+      }
       subItem.className = iconUrl ? "submission-item has-photo" : "submission-item";
 
       const isMandatory = Boolean(task.is_mandatory || task.points_reward === 0);
@@ -1359,17 +1488,30 @@ async function renderParentDashboard() {
   sortedMembers.forEach(m => {
     const item = document.createElement("div");
     item.className = "member-item";
-    const isMe = currentSession && m.id === currentSession.user_id;
+    const currentUid = currentSession.user_id || currentSession.id;
+    const isMe = currentSession && m.id === currentUid;
     if (isMe && currentSession) {
+      let changed = false;
       if (currentSession.profile_image_url !== m.profile_image_url) {
         currentSession.profile_image_url = m.profile_image_url || null;
+        changed = true;
+      }
+      if (m.avatar_frame !== undefined && currentSession.avatar_frame !== m.avatar_frame) {
+        currentSession.avatar_frame = m.avatar_frame || 'none';
+        changed = true;
+      }
+      if (m.unlocked_avatar_frames) {
+        currentSession.unlocked_avatar_frames = m.unlocked_avatar_frames;
+      }
+      if (changed) {
         localStorage.setItem("chorecraft_session", JSON.stringify(currentSession));
         updateHeaderAuthBtn();
       }
     }
+    const memberFrame = m.avatar_frame || 'none';
     const avatarHtml = `
-      <div onclick="openAvatarModal('${m.id}', '${escapeHTML(m.username)}', '${escapeHTML(m.profile_image_url || '')}', ${m.role === 'admin'})" title="Click to change profile picture" style="display: inline-flex;">
-        ${renderAvatarHtml(m.profile_image_url, m.role === 'admin', 'clickable')}
+      <div onclick="openAvatarModal('${m.id}', '${escapeHTML(m.username)}', '${escapeHTML(m.profile_image_url || '')}', ${m.role === 'admin'}, '${escapeHTML(memberFrame)}')" title="Click to change profile picture or frame" style="display: inline-flex;">
+        ${renderAvatarHtml(m.profile_image_url, m.role === 'admin', 'clickable', memberFrame)}
       </div>
     `;
       
@@ -1442,7 +1584,7 @@ async function openAddChoreModal(parentTaskId = "") {
   
   document.getElementById("chore-type-input").value = "individual";
   toggleChoreType("individual");
-  setPointsSelectValue("5");
+  setPointsSelectValue("auto");
   
   const assigneeSelect = document.getElementById("chore-assignee-input");
   if (parentTaskId) {
@@ -1475,7 +1617,8 @@ async function handleSaveChore(e) {
   const taskId = document.getElementById("chore-id-input").value;
   const parentTaskId = document.getElementById("chore-parent-task-id-input").value || null;
   const titleVal = document.getElementById("chore-title-input").value.trim();
-  const points = parseInt(document.getElementById("chore-points-input").value);
+  const rawPoints = document.getElementById("chore-points-input") ? document.getElementById("chore-points-input").value : "auto";
+  const points = (rawPoints === "auto" || !rawPoints) ? 0 : (parseInt(rawPoints) || 0);
   const type = document.getElementById("chore-type-input").value;
   const isMandatory = document.getElementById("chore-mandatory-input") ? document.getElementById("chore-mandatory-input").checked : false;
   
@@ -1520,7 +1663,7 @@ async function handleSaveChore(e) {
       showToast("Chore updated successfully!");
     } else {
       // POST /choregroups/{groupID}/tasks (CreateTaskRequest)
-      await apiCall(`/choregroups/${groupId}/tasks`, "POST", {
+      const createdTask = await apiCall(`/choregroups/${groupId}/tasks`, "POST", {
         assigned_to_user_id: assigneeId || null,
         points_reward: points,
         title: fullTitle,
@@ -1530,7 +1673,8 @@ async function handleSaveChore(e) {
         parent_task_id: parentTaskId,
         icon_url: iconUrl
       });
-      showToast("Chore created on backend server!");
+      const coinsMsg = (createdTask && createdTask.points_reward) ? ` (+${createdTask.points_reward} 🐱)` : '';
+      showToast(`Chore created successfully!${coinsMsg}`);
     }
   } catch (err) {
     alert("Failed to save chore: " + err.message);
@@ -1743,26 +1887,40 @@ const AVATAR_PRESETS = {
   cool: ['🎮', '🕹️', '🎲', '🎸', '🎨', '🛹', '⚽', '🏀', '🚀', '🏎️', '🥋', '🏆', '🎧', '🎯', '🎳', '🏄', '🥊', '🎪']
 };
 
+const AVATAR_FRAMES = [
+  { id: "none", name: "Classic (None)", icon: "⚪", isSurprise: false },
+  { id: "golden_sparkle", name: "Golden Sparkle", icon: "✨", isSurprise: true },
+  { id: "fire_flame", name: "Dragon Flame", icon: "🔥", isSurprise: true },
+  { id: "cosmic_nebula", name: "Cosmic Nebula", icon: "🌌", isSurprise: true },
+  { id: "emerald_nature", name: "Emerald Nature", icon: "🌿", isSurprise: true },
+  { id: "rainbow_wave", name: "Rainbow Aura", icon: "🌈", isSurprise: true },
+  { id: "royal_crown", name: "Royal Crown", icon: "👑", isSurprise: true },
+  { id: "neon_cyber", name: "Cyber Blitz", icon: "⚡", isSurprise: true },
+];
+
 let avatarModalState = {
   targetUserId: null,
   targetUsername: '',
   targetIsAdmin: false,
   selectedAvatarUrl: '',
+  selectedFrame: 'none',
   currentTab: 'animals'
 };
 
-function openAvatarModal(userId = null, username = '', currentAvatarUrl = '', isAdmin = null) {
+function openAvatarModal(userId = null, username = '', currentAvatarUrl = '', isAdmin = null, currentFrame = 'none') {
   if (!userId && currentSession) {
     userId = currentSession.user_id || currentSession.id;
     username = currentSession.username;
     currentAvatarUrl = currentSession.profile_image_url || '';
     isAdmin = currentSession.role === 'admin';
+    currentFrame = currentSession.avatar_frame || 'none';
   } else if (userId) {
     if (!username || isAdmin === null) {
       if (currentSession && (currentSession.user_id === userId || currentSession.id === userId)) {
         username = currentSession.username;
         currentAvatarUrl = currentSession.profile_image_url || '';
         isAdmin = currentSession.role === 'admin';
+        currentFrame = currentSession.avatar_frame || 'none';
       }
     }
   }
@@ -1771,17 +1929,19 @@ function openAvatarModal(userId = null, username = '', currentAvatarUrl = '', is
   avatarModalState.targetUsername = username || (currentSession ? currentSession.username : '');
   avatarModalState.targetIsAdmin = (isAdmin !== null) ? !!isAdmin : (currentSession && currentSession.role === 'admin');
   avatarModalState.selectedAvatarUrl = currentAvatarUrl || '';
+  avatarModalState.selectedFrame = currentFrame || 'none';
   avatarModalState.currentTab = 'animals';
   
   const titleEl = document.getElementById("avatar-modal-title");
   if (titleEl) {
     const isMe = currentSession && (userId === currentSession.user_id || userId === currentSession.id);
-    titleEl.innerText = isMe ? "Change Profile Picture" : `Change Picture for ${avatarModalState.targetUsername}`;
+    titleEl.innerText = isMe ? "Change Profile Picture & Frame" : `Picture & Frame for ${avatarModalState.targetUsername}`;
   }
   
   const captionEl = document.getElementById("avatar-modal-user-caption");
   if (captionEl) {
-    captionEl.innerText = `${avatarModalState.targetUsername} • ${avatarModalState.targetIsAdmin ? 'Admin 👑' : 'Family Member'}`;
+    const roleName = avatarModalState.targetIsAdmin ? 'admin' : 'user';
+    captionEl.innerText = `${avatarModalState.targetUsername} • ${roleName}`;
   }
 
   updateAvatarPreview();
@@ -1807,19 +1967,108 @@ function updateAvatarPreview() {
   const url = avatarModalState.selectedAvatarUrl;
   const isAdmin = avatarModalState.targetIsAdmin;
   const crownHtml = isAdmin ? '<span class="preview-crown">👑</span>' : '';
+  const frame = avatarModalState.selectedFrame || 'none';
+  const frameClass = (frame && frame !== 'none') ? `frame-${escapeHTML(frame)}` : 'frame-none';
   
+  let innerContent = '';
   if (url && (url.startsWith('/') || url.startsWith('http'))) {
-    previewContainer.innerHTML = `<img src="${escapeHTML(url)}" alt="Preview" />${crownHtml}`;
+    innerContent = `<img src="${escapeHTML(url)}" alt="Preview" style="width:100%;height:100%;max-width:100%;max-height:100%;object-fit:cover;border-radius:50%;display:block;" />`;
   } else if (url && url.trim()) {
-    previewContainer.innerHTML = `<span>${escapeHTML(url)}</span>${crownHtml}`;
+    innerContent = `<span>${escapeHTML(url)}</span>`;
   } else {
-    previewContainer.innerHTML = `<span>👤</span>${crownHtml}`;
+    innerContent = `<span>👤</span>`;
   }
+
+  const inner = `
+    <div class="avatar-preview-inner">
+      ${innerContent}
+      ${crownHtml}
+    </div>
+  `;
+  previewContainer.className = `avatar-big-preview avatar-frame-badge ${frameClass}`;
+  previewContainer.innerHTML = inner;
+}
+
+function renderAvatarFramesGrid(container) {
+  container.className = "avatar-frames-grid";
+  container.innerHTML = "";
+
+  const isAdmin = (currentSession && currentSession.role === 'admin') || avatarModalState.targetIsAdmin;
+  const unlocked = (currentSession && Array.isArray(currentSession.unlocked_avatar_frames))
+    ? currentSession.unlocked_avatar_frames
+    : ["none"];
+  const currentEquipped = avatarModalState.selectedFrame || (currentSession ? currentSession.avatar_frame : "none");
+
+  AVATAR_FRAMES.forEach(frame => {
+    const isUnlocked = isAdmin || unlocked.includes(frame.id) || frame.id === "none";
+    const isEquipped = currentEquipped === frame.id;
+    
+    const card = document.createElement("div");
+    card.className = `avatar-frame-card ${isEquipped ? 'equipped' : ''} ${isUnlocked ? 'unlocked' : 'locked'}`;
+    
+    const avatarUrl = avatarModalState.selectedAvatarUrl || (currentSession ? currentSession.profile_image_url : '');
+    const avatarInner = (avatarUrl && (avatarUrl.startsWith('/') || avatarUrl.startsWith('http')))
+      ? `<img src="${escapeHTML(avatarUrl)}" class="member-avatar-img" alt="Avatar" style="width:100%;height:100%;max-width:100%;max-height:100%;border-radius:50%;object-fit:cover;display:block;" />`
+      : `<span style="font-size: 1.3rem;">${escapeHTML(avatarUrl || '👤')}</span>`;
+
+    let badgeText = "🔒 Locked";
+    if (isEquipped) {
+      badgeText = "Equipped ✓";
+    } else if (isUnlocked) {
+      badgeText = "Equip ✨";
+    }
+
+    card.innerHTML = `
+      <div class="avatar-frame-card-preview">
+        <span class="avatar-frame-badge frame-${frame.id}" style="width: 40px; height: 40px; display: inline-flex; align-items: center; justify-content: center;">
+          ${avatarInner}
+        </span>
+      </div>
+      <div class="avatar-frame-card-title">${frame.icon} ${escapeHTML(frame.name)}</div>
+      <div class="avatar-frame-card-badge">${badgeText}</div>
+    `;
+
+    card.onclick = async () => {
+      if (!isUnlocked) {
+        showToast(`🔒 "${frame.name}" is locked! Unlock it via the Step 10 Daily Surprise or Lucky Wheel! 🎁`, "info");
+        return;
+      }
+      avatarModalState.selectedFrame = frame.id;
+      updateAvatarPreview();
+      
+      const targetUserId = avatarModalState.targetUserId || (currentSession && (currentSession.user_id || currentSession.id));
+      if (currentSession && targetUserId) {
+        try {
+          const groupId = currentSession.choregroup_id;
+          await apiCall(`/choregroups/${groupId}/members/${targetUserId}/avatar-frame`, "PUT", {
+            avatar_frame: frame.id
+          });
+          if (currentSession.user_id === targetUserId || currentSession.id === targetUserId) {
+            currentSession.avatar_frame = frame.id;
+            localStorage.setItem("chorecraft_session", JSON.stringify(currentSession));
+            updateHeaderAuthBtn();
+          }
+          showToast(`Equipped ${frame.name}! ✨`);
+          renderAvatarFramesGrid(container);
+          if (currentSession.role === "admin") {
+            renderParentDashboard();
+          } else {
+            renderKidDashboard();
+          }
+        } catch (err) {
+          console.error("Failed to equip avatar frame:", err);
+          showToast("Failed to equip frame: " + err.message, "error");
+        }
+      }
+    };
+
+    container.appendChild(card);
+  });
 }
 
 function switchAvatarTab(tabName) {
   avatarModalState.currentTab = tabName;
-  ['animals', 'characters', 'cool'].forEach(t => {
+  ['animals', 'characters', 'cool', 'frames'].forEach(t => {
     const btn = document.getElementById(`avatar-tab-${t}`);
     if (btn) btn.classList.toggle('active', t === tabName);
   });
@@ -1827,6 +2076,13 @@ function switchAvatarTab(tabName) {
   const container = document.getElementById("avatar-grid-container");
   if (!container) return;
   container.innerHTML = "";
+
+  if (tabName === 'frames') {
+    renderAvatarFramesGrid(container);
+    return;
+  }
+
+  container.className = "avatar-grid";
 
   // Picture upload slot as first button in grid (icon-only upload tile)
   const uploadSlotBtn = document.createElement("button");
@@ -1896,8 +2152,9 @@ function resetAvatarToDefault() {
 }
 
 async function saveSelectedAvatar() {
-  const { targetUserId, selectedAvatarUrl } = avatarModalState;
-  if (!targetUserId || !currentSession) return;
+  const { targetUserId, selectedAvatarUrl, selectedFrame } = avatarModalState;
+  const uid = targetUserId || (currentSession && (currentSession.user_id || currentSession.id));
+  if (!uid || !currentSession) return;
   
   const saveBtn = document.getElementById("avatar-save-btn");
   const saveSvg = `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>`;
@@ -1908,20 +2165,33 @@ async function saveSelectedAvatar() {
   
   try {
     const groupId = currentSession.choregroup_id;
-    await apiCall(`/choregroups/${groupId}/members/${targetUserId}/avatar`, "PUT", {
+    await apiCall(`/choregroups/${groupId}/members/${uid}/avatar`, "PUT", {
       avatar_url: selectedAvatarUrl
     });
+
+    if (selectedFrame) {
+      try {
+        await apiCall(`/choregroups/${groupId}/members/${uid}/avatar-frame`, "PUT", {
+          avatar_frame: selectedFrame
+        });
+      } catch (fErr) {
+        console.warn("Avatar frame update in saveSelectedAvatar:", fErr);
+      }
+    }
     
     // If the edited user is current session user, update local currentSession
-    const isMe = targetUserId === currentSession.user_id || targetUserId === currentSession.id;
+    const isMe = uid === currentSession.user_id || uid === currentSession.id;
     if (isMe) {
       currentSession.profile_image_url = selectedAvatarUrl || null;
+      if (selectedFrame) {
+        currentSession.avatar_frame = selectedFrame;
+      }
       localStorage.setItem("chorecraft_session", JSON.stringify(currentSession));
       updateHeaderAuthBtn();
     }
     
     closeModal("avatar-modal");
-    showToast("Profile picture updated! ✨");
+    showToast("Profile updated! ✨");
     
     // Refresh family members or kid dashboard
     if (currentSession.role === "admin") {
@@ -1931,7 +2201,7 @@ async function saveSelectedAvatar() {
     }
   } catch (err) {
     console.error("Failed to save avatar:", err);
-    alert("Could not update profile picture: " + err.message);
+    alert("Could not update profile: " + err.message);
   } finally {
     if (saveBtn) {
       saveBtn.disabled = false;
@@ -2032,6 +2302,18 @@ async function renderKidDashboard() {
     if (me && me.profile_image_url !== undefined && me.profile_image_url !== currentSession.profile_image_url) {
       currentSession.profile_image_url = me.profile_image_url;
     }
+    if (me && me.avatar_frame !== undefined && me.avatar_frame !== currentSession.avatar_frame) {
+      currentSession.avatar_frame = me.avatar_frame;
+    }
+    if (me && me.unlocked_avatar_frames !== undefined) {
+      currentSession.unlocked_avatar_frames = me.unlocked_avatar_frames;
+    }
+    if (me && me.points_background !== undefined) {
+      currentSession.points_background = me.points_background;
+    }
+    if (me && me.unlocked_backgrounds !== undefined) {
+      currentSession.unlocked_backgrounds = me.unlocked_backgrounds;
+    }
     localStorage.setItem("chorecraft_session", JSON.stringify(currentSession));
     updateHeaderAuthBtn();
 
@@ -2062,13 +2344,23 @@ async function renderKidDashboard() {
     }
     
     activeOnly.sort((a, b) => {
+      // 1. Pending approval at top, then expired tasks, then other chores
+      const getTaskTier = (t) => {
+        if (t.status === "pending_approval") return 1;
+        if (t.status === "expired" || (t.status === "assigned" && t.is_expired)) return 2;
+        return 3;
+      };
+
+      const tierA = getTaskTier(a);
+      const tierB = getTaskTier(b);
+      if (tierA !== tierB) return tierA - tierB;
+
       if (a.is_mandatory !== b.is_mandatory) return a.is_mandatory ? -1 : 1;
 
       const aTimed = !!(a.status === "assigned" && a.expires_at);
       const bTimed = !!(b.status === "assigned" && b.expires_at);
       if (aTimed !== bTimed) return aTimed ? -1 : 1;
 
-      if (a.status !== b.status) return a.status === "assigned" ? -1 : 1;
       return 0;
     });
     
@@ -2093,8 +2385,11 @@ async function renderKidDashboard() {
         card.className = `chore-card ${isDisabled ? 'disabled' : ''}`;
         card.id = "kid-task-" + task.id;
 
-        // Parse emoji and title
         const { emoji, title } = parseChoreTitle(task.title);
+        if (task.icon_url) {
+          card.dataset.photoUrl = resolveIconUrl(task.icon_url);
+          card.dataset.choreTitle = title;
+        }
 
         let actionHtml = "";
         if (task.status === "assigned") {
@@ -2230,25 +2525,34 @@ async function renderKidSidebarWidgets(existingMembers = null) {
   const second = sortedKids[1] || { username: "-", points: 0 };
   const third = sortedKids[2] || { username: "-", points: 0 };
   
+  const renderPodiumAvatar = (u, defaultEmoji) => {
+    const frame = u.avatar_frame || 'none';
+    if (u.profile_image_url) {
+      return `<div style="display:inline-flex;margin-bottom:4px;">${renderAvatarHtml(u.profile_image_url, false, '', frame)}</div>`;
+    }
+    const ringClass = defaultEmoji === '👑' ? 'gold' : (defaultEmoji === '🥈' ? 'silver' : 'bronze');
+    return `<div class="avatar-ring ${ringClass}"><span class="avatar-frame-badge frame-${frame}">${defaultEmoji}</span></div>`;
+  };
+
   const podiumContainer = document.getElementById("kid-podium-container");
   if (podiumContainer) {
     podiumContainer.innerHTML = `
       <div class="podium-col second">
-        <div class="avatar-ring silver">🥈</div>
+        ${renderPodiumAvatar(second, '🥈')}
         <div class="podium-name">${second.username}</div>
         <div class="podium-bar">
           <span class="points-label">${second.points} <span class="points-coin">🐱</span></span>
         </div>
       </div>
       <div class="podium-col first">
-        <div class="avatar-ring gold">👑</div>
+        ${renderPodiumAvatar(first, '👑')}
         <div class="podium-name">${first.username}</div>
         <div class="podium-bar">
           <span class="points-label">${first.points} <span class="points-coin">🐱</span></span>
         </div>
       </div>
       <div class="podium-col third">
-        <div class="avatar-ring bronze">🥉</div>
+        ${renderPodiumAvatar(third, '🥉')}
         <div class="podium-name">${third.username}</div>
         <div class="podium-bar">
           <span class="points-label">${third.points} <span class="points-coin">🐱</span></span>
@@ -2796,6 +3100,7 @@ async function renderRewardsDashboard() {
 
             const costClass = isCoop ? 'reward-cost-display coop-theme' : 'reward-cost-display';
             const { emoji, title } = parseChoreTitle(reward.name);
+            const rewardIconUrl = reward.icon_url ? resolveIconUrl(reward.icon_url) : '';
             const adminButtons = `
               <button class="btn btn-outline btn-sm" onclick="openEditRewardModal('${reward.id}')">✏️</button>
               <button class="btn btn-outline btn-sm" style="color: var(--destructive-red); border-color: var(--destructive-red);" onclick="handleDeleteReward('${reward.id}')">🗑️</button>
@@ -2803,9 +3108,9 @@ async function renderRewardsDashboard() {
             
             const coinHtml = isCoop ? `<span class="points-coin coop-theme">🐱🐱</span>` : `<span class="points-coin">🐱</span>`;
             return `
-              <div id="parent-reward-${reward.id}" data-reward-id="${reward.id}" class="reward-card">
+              <div id="parent-reward-${reward.id}" data-reward-id="${reward.id}" class="reward-card ${rewardIconUrl ? 'has-photo' : ''}" ${rewardIconUrl ? `data-photo-url="${rewardIconUrl}" data-chore-title="${escapeHTML(title)}"` : ''}>
                 <div class="card-top">
-                  <div class="card-emoji-box">${renderItemIcon(reward, emoji)}</div>
+                  <div class="card-emoji-box">${renderItemIcon(reward, emoji, title)}</div>
                   <div class="card-details">
                     <h3>${escapeHTML(title)}</h3>
                     <p class="reward-desc">${formatDescriptionWithLinks(reward.description || '')}</p>
@@ -2843,11 +3148,12 @@ async function renderRewardsDashboard() {
             const costClass = isCoop ? 'reward-cost-display coop-theme' : 'reward-cost-display';
             const coinHtml = isCoop ? `<span class="points-coin coop-theme">🐱🐱</span>` : `<span class="points-coin">🐱</span>`;
             const { emoji, title } = parseChoreTitle(rewardName);
+            const rewardIconUrl = (reward && reward.icon_url) ? resolveIconUrl(reward.icon_url) : '';
             
             return `
-              <div class="pending-item">
+              <div class="pending-item ${rewardIconUrl ? 'has-photo' : ''}" ${rewardIconUrl ? `data-photo-url="${rewardIconUrl}" data-chore-title="${escapeHTML(title)}"` : ''}>
                 <div class="card-top">
-                  <div class="card-emoji-box">${renderItemIcon(reward, emoji)}</div>
+                  <div class="card-emoji-box">${renderItemIcon(reward, emoji, title)}</div>
                   <div class="card-details">
                     <h3>${escapeHTML(title)}</h3>
                     <p>Purchased by <strong>${escapeHTML(buyer)}</strong></p>
@@ -2897,14 +3203,15 @@ async function renderRewardsDashboard() {
 
             const costClass = isCoop ? 'reward-cost-display coop-theme' : 'reward-cost-display';
             const { emoji, title } = parseChoreTitle(reward.name);
+            const rewardIconUrl = reward.icon_url ? resolveIconUrl(reward.icon_url) : '';
             const coinHtml = isCoop ? `<span class="points-coin coop-theme">🐱🐱</span>` : `<span class="points-coin">🐱</span>`;
             const buttonClass = isCoop ? 'btn btn-primary btn-sm coop-theme' : 'btn btn-primary btn-sm';
             const buyButton = `<button class="${buttonClass}" ${buyDisabled ? 'disabled' : ''} onclick="handleBuyReward('${reward.id}', '${reward.name.replace(/'/g, "\\'")}')">${cost} ${coinHtml}</button>`;
             
             return `
-              <div id="kid-reward-${reward.id}" data-reward-id="${reward.id}" class="reward-card ${buyDisabled ? 'disabled' : ''}">
+              <div id="kid-reward-${reward.id}" data-reward-id="${reward.id}" class="reward-card ${buyDisabled ? 'disabled' : ''} ${rewardIconUrl ? 'has-photo' : ''}" ${rewardIconUrl ? `data-photo-url="${rewardIconUrl}" data-chore-title="${escapeHTML(title)}"` : ''}>
                 <div class="card-top">
-                  <div class="card-emoji-box">${renderItemIcon(reward, emoji)}</div>
+                  <div class="card-emoji-box">${renderItemIcon(reward, emoji, title)}</div>
                   <div class="card-details">
                     <h3>${escapeHTML(title)}</h3>
                     <p class="reward-desc">${formatDescriptionWithLinks(reward.description || '')}</p>
@@ -2939,10 +3246,11 @@ async function renderRewardsDashboard() {
             const costClass = isCoop ? 'reward-cost-display coop-theme' : 'reward-cost-display';
             const coinHtml = isCoop ? `<span class="points-coin coop-theme">🐱🐱</span>` : `<span class="points-coin">🐱</span>`;
             const { emoji, title } = parseChoreTitle(rewardName);
+            const rewardIconUrl = (reward && reward.icon_url) ? resolveIconUrl(reward.icon_url) : '';
             return `
-              <div class="pending-item">
+              <div class="pending-item ${rewardIconUrl ? 'has-photo' : ''}" ${rewardIconUrl ? `data-photo-url="${rewardIconUrl}" data-chore-title="${escapeHTML(title)}"` : ''}>
                 <div class="card-top">
-                  <div class="card-emoji-box">${renderItemIcon(reward, emoji)}</div>
+                  <div class="card-emoji-box">${renderItemIcon(reward, emoji, title)}</div>
                   <div class="card-details">
                     <h3>${escapeHTML(title)}</h3>
                     <p>${statusLabel}</p>
@@ -2979,10 +3287,11 @@ async function renderRewardsDashboard() {
             const costClass = isCoop ? 'reward-cost-display coop-theme' : 'reward-cost-display';
             const coinHtml = isCoop ? `<span class="points-coin coop-theme">🐱🐱</span>` : `<span class="points-coin">🐱</span>`;
             const { emoji, title } = parseChoreTitle(rewardName);
+            const rewardIconUrl = (reward && reward.icon_url) ? resolveIconUrl(reward.icon_url) : '';
             return `
-              <div class="pending-item">
+              <div class="pending-item ${rewardIconUrl ? 'has-photo' : ''}" ${rewardIconUrl ? `data-photo-url="${rewardIconUrl}" data-chore-title="${escapeHTML(title)}"` : ''}>
                 <div class="card-top">
-                  <div class="card-emoji-box">${renderItemIcon(reward, emoji)}</div>
+                  <div class="card-emoji-box">${renderItemIcon(reward, emoji, title)}</div>
                   <div class="card-details">
                     <h3>${escapeHTML(title)}</h3>
                     <p>Initiated by <strong>${escapeHTML(requester)}</strong></p>
@@ -3243,6 +3552,34 @@ async function handleExtendTask(taskId) {
     updateLeaderboards();
   } catch (err) {
     alert("Failed to extend task: " + err.message);
+  }
+}
+
+async function handleRemoveExpiration(taskId) {
+  const groupId = currentSession.choregroup_id;
+  try {
+    const task = activeTasks.find(t => t.id === taskId);
+    if (!task) {
+      alert("Failed to find chore to update.");
+      return;
+    }
+    
+    await apiCall(`/choregroups/${groupId}/tasks/${taskId}`, "PUT", {
+      assigned_to_user_id: task.assigned_to_user_id || null,
+      points_reward: task.points_reward,
+      title: task.title,
+      type: task.type,
+      is_mandatory: task.is_mandatory,
+      expires_at: null,
+      parent_task_id: task.parent_task_id || null,
+      icon_url: task.icon_url || null
+    });
+    
+    showToast("Expiration removed! Chore is now a normal task. ✨");
+    await renderParentDashboard();
+    updateLeaderboards();
+  } catch (err) {
+    alert("Failed to remove expiration: " + err.message);
   }
 }
 
@@ -3570,6 +3907,7 @@ window.toggleChoreType = toggleChoreType;
 window.toggleMandatoryChore = toggleMandatoryChore;
 window.toggleRewardType = toggleRewardType;
 window.handleExtendTask = handleExtendTask;
+window.handleRemoveExpiration = handleRemoveExpiration;
 window.openEditChoreModal = openEditChoreModal;
 window.deleteChore = deleteChore;
 window.approveSubmission = approveSubmission;
@@ -3607,6 +3945,10 @@ window.closeCameraModal = closeCameraModal;
 window.snapCameraPhoto = snapCameraPhoto;
 window.getAiLanguage = getAiLanguage;
 window.handleAiLanguageChange = handleAiLanguageChange;
+window.openHouseholdAiModal = openHouseholdAiModal;
+window.updateAiInstructionsCharCount = updateAiInstructionsCharCount;
+window.clearHouseholdAiInstructions = clearHouseholdAiInstructions;
+window.saveHouseholdAiInstructions = saveHouseholdAiInstructions;
 
 // --- AI LANGUAGE PREFERENCE ---
 function getAiLanguage() {
@@ -3631,6 +3973,99 @@ async function handleAiLanguageChange(event) {
     }
   }
   showToast("🌐 AI Language updated");
+}
+
+// --- HOUSEHOLD AI CUSTOM INSTRUCTIONS ---
+async function openHouseholdAiModal() {
+  if (!currentSession || currentSession.role !== "admin") {
+    showToast("⚠️ Only household admins can configure AI rules.");
+    return;
+  }
+  const textarea = document.getElementById("household-ai-instructions-textarea");
+  if (textarea) {
+    textarea.value = currentSession.ai_instructions || "";
+    updateAiInstructionsCharCount();
+  }
+
+  // Also fetch the freshest version from the server if choregroup_id is available
+  if (currentSession.choregroup_id) {
+    try {
+      const group = await apiCall(`/choregroups/${currentSession.choregroup_id}`, "GET");
+      if (group && group.ai_instructions !== undefined) {
+        currentSession.ai_instructions = group.ai_instructions || "";
+        localStorage.setItem("chorecraft_session", JSON.stringify(currentSession));
+        if (textarea) {
+          textarea.value = currentSession.ai_instructions;
+          updateAiInstructionsCharCount();
+        }
+      }
+    } catch (err) {
+      console.warn("Could not fetch latest household AI rules:", err);
+    }
+  }
+
+  openModal("household-ai-modal");
+}
+
+function updateAiInstructionsCharCount() {
+  const textarea = document.getElementById("household-ai-instructions-textarea");
+  const countEl = document.getElementById("ai-instructions-char-count");
+  if (textarea && countEl) {
+    const len = textarea.value.length;
+    countEl.textContent = `${len} / 2000`;
+    if (len > 1900) {
+      countEl.style.color = "var(--destructive-red, #ef4444)";
+    } else {
+      countEl.style.color = "var(--text-muted)";
+    }
+  }
+}
+
+function clearHouseholdAiInstructions() {
+  const textarea = document.getElementById("household-ai-instructions-textarea");
+  if (textarea) {
+    textarea.value = "";
+    updateAiInstructionsCharCount();
+    textarea.focus();
+  }
+}
+
+async function saveHouseholdAiInstructions() {
+  if (!currentSession || currentSession.role !== "admin") {
+    showToast("⚠️ Only household admins can configure AI rules.");
+    return;
+  }
+  const textarea = document.getElementById("household-ai-instructions-textarea");
+  if (!textarea) return;
+  const instructions = textarea.value.trim();
+  if (instructions.length > 2000) {
+    showToast("⚠️ Instructions too long (max 2000 characters).");
+    return;
+  }
+
+  const saveBtn = document.getElementById("save-ai-instructions-btn");
+  if (saveBtn) {
+    saveBtn.disabled = true;
+    saveBtn.textContent = "Saving...";
+  }
+
+  try {
+    const res = await apiCall(`/choregroups/${currentSession.choregroup_id}/ai/instructions`, "PUT", {
+      instructions: instructions
+    });
+    currentSession.ai_instructions = instructions;
+    localStorage.setItem("chorecraft_session", JSON.stringify(currentSession));
+    showToast("✨ Household AI Rules saved!");
+    closeModal("household-ai-modal");
+  } catch (err) {
+    console.error("Failed to save household AI instructions:", err);
+    showToast("⚠️ Failed to save AI rules: " + (err.message || "Unknown error"));
+  } finally {
+    if (saveBtn) {
+      saveBtn.disabled = false;
+      saveBtn.textContent = "Save Rules ✨";
+    }
+  }
 }
 
 // --- AI IMAGE-TO-CHORE / REWARD CREATION ---
@@ -3735,7 +4170,7 @@ async function processAiImageFile(file, defaultMode = 'chore') {
   }
   const container = document.getElementById(containerId);
   const placeholderId = "ai-loading-card-" + Date.now();
-  const TOTAL_TIMEOUT_SECONDS = 35;
+  const TOTAL_TIMEOUT_SECONDS = 40;
 
   // Create sleek grayed-out loading placeholder card with animated shimmering progress bar
   if (container) {
@@ -3926,19 +4361,43 @@ function openAiCreateModalWithData(data) {
   const mode = data.item_type || aiPickerTargetMode || 'chore';
   setAiModalType(mode);
 
+  const isKid = currentSession && currentSession.role === "user";
+  const isMandatory = (mode === 'chore' && (data.category === 'mandatory' || data.points_reward === 0));
+
   document.getElementById("ai-modal-image-preview").src = resolveIconUrl(data.icon_url);
   document.getElementById("ai-input-title").value = data.title || "";
   document.getElementById("ai-input-description").value = data.description || "";
-  document.getElementById("ai-input-points").value = data.points_reward || 1;
+  
+  const ptsInput = document.getElementById("ai-input-points");
+  if (ptsInput) {
+    ptsInput.value = isMandatory ? 0 : (data.points_reward !== undefined ? data.points_reward : 1);
+    if (isKid) {
+      ptsInput.readOnly = true;
+      ptsInput.style.backgroundColor = "var(--bg-muted, #f3f4f6)";
+      ptsInput.style.cursor = "not-allowed";
+    } else {
+      ptsInput.readOnly = false;
+      ptsInput.style.backgroundColor = "var(--input-bg)";
+      ptsInput.style.cursor = "text";
+    }
+  }
+
   document.getElementById("ai-input-icon-url").value = data.icon_url || "";
-  document.getElementById("ai-valuation-reasoning").textContent = data.valuation_reasoning || `$${(data.points_reward || 1) * 2} est. value (Fibonacci scale)`;
+  document.getElementById("ai-valuation-reasoning").textContent = data.valuation_reasoning || (isMandatory ? "משימת חובה (0 מטבעות)" : `$${(data.points_reward || 1) * 2} est. value`);
 
   const catSelect = document.getElementById("ai-input-category");
   if (catSelect) {
-    if (data.category && data.category !== 'mandatory') {
+    if (isMandatory) {
+      catSelect.value = 'mandatory';
+    } else if (data.category) {
       catSelect.value = data.category;
     } else if (mode === 'chore') {
       catSelect.value = 'personal';
+    }
+    if (isKid) {
+      catSelect.disabled = true;
+    } else {
+      catSelect.disabled = false;
     }
   }
 
@@ -3987,9 +4446,15 @@ function updateAiValuationHint() {
   const ptsInput = document.getElementById("ai-input-points");
   const reasoningDiv = document.getElementById("ai-valuation-reasoning");
   if (ptsInput && reasoningDiv) {
-    const pts = parseInt(ptsInput.value) || 1;
-    const estUsd = pts * 2;
-    reasoningDiv.textContent = `~$${estUsd} est. value (1 coin = $2, Fibonacci scale)`;
+    const rawVal = ptsInput.value;
+    const pts = parseInt(rawVal);
+    if (rawVal === "0" || pts === 0) {
+      reasoningDiv.textContent = "0 coins (Mandatory Task)";
+    } else {
+      const estPts = isNaN(pts) ? 1 : pts;
+      const estUsd = estPts * 2;
+      reasoningDiv.textContent = `~$${estUsd} est. value (1 coin = $2)`;
+    }
   }
 }
 
@@ -4003,8 +4468,10 @@ async function handleAiCreateSubmit(e) {
 
   const title = document.getElementById("ai-input-title").value.trim();
   const description = document.getElementById("ai-input-description").value.trim();
-  const points = parseInt(document.getElementById("ai-input-points").value) || 1;
+  const rawPts = parseInt(document.getElementById("ai-input-points").value);
   const category = document.getElementById("ai-input-category").value;
+  const isMandatory = (aiCurrentModalType === 'chore' && (category === 'mandatory' || rawPts === 0));
+  const points = isMandatory ? 0 : (isNaN(rawPts) ? 1 : Math.max(0, rawPts));
   const iconUrl = document.getElementById("ai-input-icon-url").value || null;
   const choregroupID = currentSession.choregroup_id;
 
@@ -4013,12 +4480,16 @@ async function handleAiCreateSubmit(e) {
       const payload = {
         title: title,
         type: (category === 'cooperative') ? 'cooperative' : 'individual',
-        points_reward: (category === 'mandatory') ? 0 : points,
-        is_mandatory: (category === 'mandatory'),
+        points_reward: points,
+        is_mandatory: isMandatory,
         icon_url: iconUrl
       };
       const createdTask = await apiCall(`/choregroups/${choregroupID}/tasks`, "POST", payload);
-      showToast("Chore created from AI photo! 🧹✨");
+      if (isMandatory) {
+        showToast("⚠️ Mandatory chore created from photo!");
+      } else {
+        showToast("Chore created from AI photo! 🧹✨");
+      }
       const isKid = currentSession && currentSession.role === "user";
       if (isKid) {
         await renderKidDashboard();
@@ -4087,6 +4558,160 @@ window.handleThemeToggleClick = handleThemeToggleClick;
 window.handleThemeSwitchChange = handleThemeSwitchChange;
 
 /* ==========================================================
+   POINTS BACKGROUND THEMES SYSTEM
+   ========================================================== */
+
+const POINTS_THEMES = [
+  { id: "default", name: "Default", badge: "🪙", isSurprise: false, lockSymbol: null, decor: null },
+  { id: "autumn_leaves", name: "Autumn Leaves", badge: "🍁", isSurprise: false, lockSymbol: null, decor: "🍁" },
+  { id: "golden_stars", name: "Golden Stars", badge: "✨", isSurprise: false, lockSymbol: null, decor: "✨" },
+  { id: "cherry_blossom", name: "Cherry Blossom", badge: "🌸", isSurprise: true, lockSymbol: "🎁", decor: "🌸" },
+  { id: "cosmic_galaxy", name: "Cosmic Galaxy", badge: "🌌", isSurprise: true, lockSymbol: "🎁", decor: "⭐" },
+  { id: "emerald_nature", name: "Emerald Nature", badge: "🍃", isSurprise: true, lockSymbol: "🎁", decor: "🍃" },
+  { id: "candy_party", name: "Candy Party", badge: "🍬", isSurprise: true, lockSymbol: "🎁", decor: "🍬" },
+  { id: "fire_dragon", name: "Fire Dragon", badge: "🔥", isSurprise: true, lockSymbol: "🎁", decor: "🔥" },
+];
+
+function getPointsBackgroundDecorHtml(themeId) {
+  switch (themeId) {
+    case "autumn_leaves":
+      return '<span class="pill-decor decor-tl">🍁</span><span class="pill-decor decor-tr">🍁</span><span class="pill-decor decor-bl">🍁</span><span class="pill-decor decor-br">🍁</span>';
+    case "golden_stars":
+      return '<span class="pill-decor decor-tl">✨</span><span class="pill-decor decor-tr">✨</span><span class="pill-decor decor-bl">✨</span><span class="pill-decor decor-br">✨</span>';
+    case "cherry_blossom":
+      return '<span class="pill-decor decor-tl">🌸</span><span class="pill-decor decor-tr">🌸</span><span class="pill-decor decor-bl">🌸</span><span class="pill-decor decor-br">🌸</span>';
+    case "cosmic_galaxy":
+      return '<span class="pill-decor decor-tl">⭐</span><span class="pill-decor decor-tr">✨</span><span class="pill-decor decor-bl">✨</span><span class="pill-decor decor-br">⭐</span>';
+    case "emerald_nature":
+      return '<span class="pill-decor decor-tl">🍃</span><span class="pill-decor decor-tr">🌿</span><span class="pill-decor decor-bl">🌿</span><span class="pill-decor decor-br">🍃</span>';
+    case "candy_party":
+      return '<span class="pill-decor decor-tl">🍬</span><span class="pill-decor decor-tr">🍭</span><span class="pill-decor decor-bl">🍭</span><span class="pill-decor decor-br">🍬</span>';
+    case "fire_dragon":
+      return '<span class="pill-decor decor-tl">🔥</span><span class="pill-decor decor-tr">✨</span><span class="pill-decor decor-bl">✨</span><span class="pill-decor decor-br">🔥</span>';
+    default:
+      return '';
+  }
+}
+
+function triggerConfetti() {
+  const emojis = ["🎁", "🌸", "🍁", "✨", "⭐", "🎉", "🍬", "🍃", "🔥"];
+  for (let i = 0; i < 35; i++) {
+    const el = document.createElement("div");
+    el.textContent = emojis[Math.floor(Math.random() * emojis.length)];
+    el.style.position = "fixed";
+    el.style.left = `${5 + Math.random() * 90}%`;
+    el.style.top = "-50px";
+    el.style.fontSize = `${20 + Math.random() * 20}px`;
+    el.style.zIndex = "9999";
+    el.style.pointerEvents = "none";
+    el.style.transition = `transform ${2.2 + Math.random() * 1.5}s cubic-bezier(0.25, 1, 0.5, 1), opacity ${2.2 + Math.random() * 1.5}s ease-out`;
+    document.body.appendChild(el);
+
+    const destX = (Math.random() - 0.5) * 260;
+    const destY = window.innerHeight + 120;
+    const rot = (Math.random() - 0.5) * 720;
+
+    requestAnimationFrame(() => {
+      el.style.transform = `translate(${destX}px, ${destY}px) rotate(${rot}deg)`;
+      el.style.opacity = "0";
+    });
+
+    setTimeout(() => {
+      if (el.parentNode) el.parentNode.removeChild(el);
+    }, 4000);
+  }
+}
+
+function isAllSurprisesUnlocked() {
+  if (!currentSession) return false;
+  if (currentSession.role === "admin") return true;
+  const unlocked = Array.isArray(currentSession.unlocked_backgrounds)
+    ? currentSession.unlocked_backgrounds
+    : ["default", "autumn_leaves", "golden_stars"];
+  const surpriseThemes = POINTS_THEMES.filter(t => t.isSurprise);
+  const themesAllUnlocked = surpriseThemes.length > 0 && surpriseThemes.every(t => unlocked.includes(t.id));
+
+  const unlockedFrames = Array.isArray(currentSession.unlocked_avatar_frames)
+    ? currentSession.unlocked_avatar_frames
+    : ["none"];
+  const surpriseFrames = (typeof AVATAR_FRAMES !== "undefined") ? AVATAR_FRAMES.filter(f => f.isSurprise) : [];
+  const framesAllUnlocked = surpriseFrames.length > 0 && surpriseFrames.every(f => unlockedFrames.includes(f.id));
+
+  return themesAllUnlocked && framesAllUnlocked;
+}
+
+function drawOpenGiftBox(ctx, x, y) {
+  ctx.save();
+  // Sparkle stars bursting out from the open present
+  ctx.font = "12px 'Segoe UI Emoji', 'Apple Color Emoji', sans-serif";
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  ctx.fillText("✨", x, y - 9);
+
+  // Open lid floating tilted to the upper left
+  ctx.save();
+  ctx.translate(x - 1, y - 3);
+  ctx.rotate(-0.38);
+  ctx.fillStyle = "#f43f5e";
+  if (ctx.roundRect) {
+    ctx.beginPath();
+    ctx.roundRect(-10, -3, 20, 5, 2);
+    ctx.fill();
+  } else {
+    ctx.fillRect(-10, -3, 20, 5);
+  }
+  // Gold ribbon on lid
+  ctx.fillStyle = "#fbbf24";
+  ctx.fillRect(-2, -3, 4, 5);
+  // Gold bow knot
+  ctx.beginPath();
+  ctx.arc(0, -4, 2.5, 0, Math.PI * 2);
+  ctx.fillStyle = "#fef08a";
+  ctx.fill();
+  ctx.restore();
+
+  // Box body
+  ctx.fillStyle = "#e11d48";
+  if (ctx.roundRect) {
+    ctx.beginPath();
+    ctx.roundRect(x - 9, y + 2, 18, 13, [0, 0, 3, 3]);
+    ctx.fill();
+  } else {
+    ctx.fillRect(x - 9, y + 2, 18, 13);
+  }
+  // Gold vertical ribbon on body
+  ctx.fillStyle = "#fbbf24";
+  ctx.fillRect(x - 2, y + 2, 4, 13);
+  ctx.restore();
+}
+
+function drawCoopCoin(ctx, x, y, r = 13) {
+  const grad = ctx.createRadialGradient(x - 3, y - 3, 1, x, y, r);
+  grad.addColorStop(0, "#e9d5ff");
+  grad.addColorStop(0.35, "#c084fc");
+  grad.addColorStop(0.7, "#8b5cf6");
+  grad.addColorStop(1, "#581c87");
+
+  ctx.save();
+  ctx.beginPath();
+  ctx.arc(x, y, r, 0, Math.PI * 2);
+  ctx.fillStyle = grad;
+  ctx.shadowColor = "rgba(0, 0, 0, 0.25)";
+  ctx.shadowBlur = 4;
+  ctx.fill();
+
+  ctx.lineWidth = 1.3;
+  ctx.strokeStyle = "#f3e8ff";
+  ctx.stroke();
+
+  ctx.font = `${Math.round(r * 0.72)}px 'Segoe UI Emoji', 'Apple Color Emoji', sans-serif`;
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  ctx.fillText("🐱🐱", x, y + 0.5);
+  ctx.restore();
+}
+
+/* ==========================================================
    DAILY BONUS, LUCKY WHEEL & FLYING COINS ANIMATION
    ========================================================== */
 
@@ -4095,14 +4720,14 @@ let isWheelSpinning = false;
 let wheelCurrentAngle = 0;
 
 const WHEEL_SLICES = [
-  { index: 0, amountLabel: "+1", icon: "🪙",   type: "individual",  amount: 1, color: "#f59e0b" },
-  { index: 1, amountLabel: "+1", icon: "coop", type: "cooperative", amount: 1, color: "#8b5cf6" },
-  { index: 2, amountLabel: "+2", icon: "🪙",   type: "individual",  amount: 2, color: "#eab308" },
-  { index: 3, amountLabel: "0",  icon: "💨",   type: "none",         amount: 0, color: "#334155" },
-  { index: 4, amountLabel: "+1", icon: "🪙",   type: "individual",  amount: 1, color: "#f59e0b" },
-  { index: 5, amountLabel: "+2", icon: "coop", type: "cooperative", amount: 2, color: "#7c3aed" },
-  { index: 6, amountLabel: "+2", icon: "🪙",   type: "individual",  amount: 2, color: "#eab308" },
-  { index: 7, amountLabel: "0",  icon: "💨",   type: "none",         amount: 0, color: "#334155" },
+  { index: 0, amountLabel: "", icon: "🪙",     type: "individual",  amount: 1, color: "#f59e0b" },
+  { index: 1, amountLabel: "", icon: "coop",   type: "cooperative", amount: 1, color: "#8b5cf6" },
+  { index: 2, amountLabel: "", icon: "🪙🪙",   type: "individual",  amount: 2, color: "#eab308" },
+  { index: 3, amountLabel: "", icon: "🎁",     type: "surprise",    amount: 0, color: "#ec4899" },
+  { index: 4, amountLabel: "", icon: "🪙",     type: "individual",  amount: 1, color: "#f59e0b" },
+  { index: 5, amountLabel: "", icon: "coop",   type: "cooperative", amount: 2, color: "#7c3aed" },
+  { index: 6, amountLabel: "", icon: "🪙🪙",   type: "individual",  amount: 2, color: "#eab308" },
+  { index: 7, amountLabel: "", icon: "🚫",     type: "none",         amount: 0, color: "#334155" },
 ];
 
 function renderDailyBonusBar(dailyBonus) {
@@ -4122,15 +4747,16 @@ function renderDailyBonusBar(dailyBonus) {
   if (container) container.style.display = "block";
 
   const completed = dailyBonus.tasks_completed || 0;
-  const pct = Math.min(100, Math.max(0, (completed / 5) * 100));
+  // Track starts at step 1 center and ends at step 10 center (9 intervals)
+  const pct = completed <= 0 ? 0 : Math.min(100, Math.max(0, ((completed - 1) / 9) * 100));
 
   const fillBar = document.getElementById("daily-bonus-fill-bar");
   if (fillBar) {
     fillBar.style.width = `${pct}%`;
   }
 
-  // Update step indicators 1..5
-  for (let s = 1; s <= 5; s++) {
+  // Update step indicators 1..10
+  for (let s = 1; s <= 10; s++) {
     const el = document.getElementById(`bonus-step-${s}`);
     if (el) {
       if (completed >= s) {
@@ -4141,29 +4767,21 @@ function renderDailyBonusBar(dailyBonus) {
     }
   }
 
-  // Step 3 (Wheel): glows gold while spins are available, turns green as done once spun
-  const step3 = document.getElementById("bonus-step-3");
-  if (step3) {
-    const isReached = completed >= 3;
-    const hasUnspentSpin = (dailyBonus.spins_available || 0) > 0;
-    if (isReached && hasUnspentSpin) {
-      step3.classList.add("has-reward");
-    } else {
-      step3.classList.remove("has-reward");
+  // Steps 1, 4, 7, 10 (Lucky Wheel Spins):
+  // Glow gold while spins are available, turn green as done once spun
+  const wheelSteps = [1, 4, 7, 10];
+  const hasUnspentSpin = (dailyBonus.spins_available || 0) > 0;
+  wheelSteps.forEach((stepNum) => {
+    const el = document.getElementById(`bonus-step-${stepNum}`);
+    if (el) {
+      const isReached = completed >= stepNum;
+      if (isReached && hasUnspentSpin) {
+        el.classList.add("has-reward");
+      } else {
+        el.classList.remove("has-reward");
+      }
     }
-  }
-
-  // Step 5 (2x Multiplier): glows pink/purple while 2x is active, turns green as done once chore is approved/doubled
-  const step5 = document.getElementById("bonus-step-5");
-  if (step5) {
-    const isReached = completed >= 5;
-    const is2xReady = Boolean(dailyBonus.double_coins_active && !dailyBonus.double_coins_used);
-    if (isReached && is2xReady) {
-      step5.classList.add("has-reward");
-    } else {
-      step5.classList.remove("has-reward");
-    }
-  }
+  });
 
   // Update header wheel badge count
   updateHeaderWheelBadge(spinsAvail);
@@ -4235,43 +4853,48 @@ function drawWheelCanvas() {
     ctx.stroke();
     ctx.restore();
 
-    // Prize Amount (bold, colored matching theme)
+    // Prize Visual (purely visual: 1 or 2 coins, surprise gift, or red block - no numbers)
     ctx.save();
-    ctx.fillStyle = slice.type === 'cooperative' ? '#6d28d9' : (slice.type === 'individual' ? '#b45309' : '#475569');
-    ctx.font = "900 13.5px Nunito, system-ui, sans-serif";
-    ctx.textAlign = "center";
-    ctx.textBaseline = "middle";
-    ctx.fillText(slice.amountLabel, badgeX, -8);
-
-    // Prize Icon (🪙, coop coin, 💨)
     if (slice.type === 'cooperative') {
-      const coinY = 10;
-      const coinR = 10.5;
-
-      const grad = ctx.createRadialGradient(badgeX - 3, coinY - 3, 1, badgeX, coinY, coinR);
-      grad.addColorStop(0, "#e9d5ff");
-      grad.addColorStop(0.35, "#c084fc");
-      grad.addColorStop(0.7, "#8b5cf6");
-      grad.addColorStop(1, "#581c87");
-
-      ctx.beginPath();
-      ctx.arc(badgeX, coinY, coinR, 0, Math.PI * 2);
-      ctx.fillStyle = grad;
-      ctx.fill();
-      ctx.lineWidth = 1.2;
-      ctx.strokeStyle = "#f3e8ff";
-      ctx.stroke();
-
-      ctx.font = "8px 'Segoe UI Emoji', 'Apple Color Emoji', sans-serif";
+      if (slice.amount >= 2) {
+        // 2 Co-op Coins (slightly overlapping pair)
+        drawCoopCoin(ctx, badgeX - 6, -3, 11);
+        drawCoopCoin(ctx, badgeX + 6, 3, 11);
+      } else {
+        // 1 Co-op Coin (centered)
+        drawCoopCoin(ctx, badgeX, 0, 13.5);
+      }
+    } else if (slice.type === 'individual') {
+      if (slice.amount >= 2) {
+        // 2 Individual Gold Coins (overlapping pair)
+        ctx.font = "18px 'Segoe UI Emoji', 'Apple Color Emoji', sans-serif";
+        ctx.textAlign = "center";
+        ctx.textBaseline = "middle";
+        ctx.fillText("🪙", badgeX - 6, -3);
+        ctx.fillText("🪙", badgeX + 6, 3);
+      } else {
+        // 1 Individual Gold Coin (centered)
+        ctx.font = "24px 'Segoe UI Emoji', 'Apple Color Emoji', sans-serif";
+        ctx.textAlign = "center";
+        ctx.textBaseline = "middle";
+        ctx.fillText("🪙", badgeX, 0.5);
+      }
+    } else if (slice.type === 'surprise') {
+      const allSurprisesClaimed = isAllSurprisesUnlocked();
+      if (allSurprisesClaimed) {
+        drawOpenGiftBox(ctx, badgeX, 0);
+      } else {
+        ctx.font = "24px 'Segoe UI Emoji', 'Apple Color Emoji', sans-serif";
+        ctx.textAlign = "center";
+        ctx.textBaseline = "middle";
+        ctx.fillText("🎁", badgeX, 0.5);
+      }
+    } else {
+      // 0 Coins: Red Block Symbol (centered)
+      ctx.font = "24px 'Segoe UI Emoji', 'Apple Color Emoji', sans-serif";
       ctx.textAlign = "center";
       ctx.textBaseline = "middle";
-      ctx.fillText("🐱🐱", badgeX, coinY + 0.5);
-    } else if (slice.type === 'individual') {
-      ctx.font = "18px 'Segoe UI Emoji', 'Apple Color Emoji', sans-serif";
-      ctx.fillText("🪙", badgeX, 10);
-    } else {
-      ctx.font = "18px 'Segoe UI Emoji', 'Apple Color Emoji', sans-serif";
-      ctx.fillText("💨", badgeX, 10);
+      ctx.fillText("🚫", badgeX, 0.5);
     }
     ctx.restore();
 
@@ -4298,6 +4921,30 @@ function drawWheelCanvas() {
     ctx.fill();
     ctx.restore();
   }
+
+  // 3. Sleek Center Axle Pin (purely decorative, rotates with wheel, no text or button)
+  ctx.save();
+  ctx.beginPath();
+  ctx.arc(centerX, centerY, 15, 0, Math.PI * 2);
+  ctx.fillStyle = "#ffffff";
+  ctx.shadowColor = "rgba(0, 0, 0, 0.25)";
+  ctx.shadowBlur = 4;
+  ctx.fill();
+
+  const hubGrad = ctx.createLinearGradient(centerX - 10, centerY - 10, centerX + 10, centerY + 10);
+  hubGrad.addColorStop(0, "#fbbf24");
+  hubGrad.addColorStop(0.6, "#f59e0b");
+  hubGrad.addColorStop(1, "#d97706");
+  ctx.beginPath();
+  ctx.arc(centerX, centerY, 11, 0, Math.PI * 2);
+  ctx.fillStyle = hubGrad;
+  ctx.fill();
+
+  ctx.beginPath();
+  ctx.arc(centerX - 3, centerY - 3, 3, 0, Math.PI * 2);
+  ctx.fillStyle = "rgba(255, 255, 255, 0.65)";
+  ctx.fill();
+  ctx.restore();
 
   ctx.restore();
 }
@@ -4404,7 +5051,36 @@ async function handleSpinWheelClick() {
         resultBanner.className = "wheel-result-banner";
         resultBanner.style.display = "inline-flex";
 
-        if (res.amount > 0) {
+        if (res.reward_type === "surprise") {
+          resultBanner.classList.add("surprise-win");
+          if (res.surprise_frame) {
+            const foundFrame = (typeof AVATAR_FRAMES !== "undefined") ? AVATAR_FRAMES.find(f => f.id === res.surprise_frame) : null;
+            const frameName = foundFrame ? foundFrame.name : res.surprise_frame;
+            if (resAmount) resAmount.textContent = `Surprise! ${frameName} Frame`;
+            if (resIcon) resIcon.textContent = "🖼️";
+
+            setTimeout(() => {
+              showSurpriseUnboxModal(null, () => {
+                drawWheelCanvas();
+              }, null, res.surprise_frame);
+            }, 350);
+          } else if (res.surprise_background) {
+            const foundTheme = (typeof POINTS_THEMES !== "undefined") ? POINTS_THEMES.find(t => t.id === res.surprise_background) : null;
+            const themeName = foundTheme ? (foundTheme.name || foundTheme.id) : res.surprise_background;
+            if (resAmount) resAmount.textContent = `Surprise! ${themeName} Theme`;
+            if (resIcon) resIcon.textContent = "🎁";
+
+            setTimeout(() => {
+              showSurpriseUnboxModal(res.surprise_background, () => {
+                drawWheelCanvas();
+              });
+            }, 350);
+          } else {
+            if (resAmount) resAmount.textContent = `+${res.amount || 3}`;
+            if (resIcon) resIcon.innerHTML = '<span class="points-coin">🐱</span>';
+            animateCoinsFlight("individual", res.amount || 3, res.user_points, res.cooperative_points);
+          }
+        } else if (res.amount > 0) {
           if (res.reward_type === "cooperative") {
             resultBanner.classList.add("coop-win");
             if (resAmount) resAmount.textContent = `+${res.amount}`;
@@ -4419,7 +5095,7 @@ async function handleSpinWheelClick() {
         } else {
           resultBanner.classList.add("zero-points");
           if (resAmount) resAmount.textContent = "0";
-          if (resIcon) resIcon.textContent = "💨";
+          if (resIcon) resIcon.textContent = "🚫";
         }
       }
 
@@ -4563,6 +5239,1001 @@ window.openWheelModal = openWheelModal;
 window.closeWheelModal = closeWheelModal;
 window.handleSpinWheelClick = handleSpinWheelClick;
 window.drawWheelCanvas = drawWheelCanvas;
+
+/* ==========================================================
+   INTERACTIVE SURPRISE PRESENT UNBOXING SYSTEM
+   ========================================================== */
+
+let currentRevealedSurpriseThemeId = null;
+let currentRevealedSurpriseFrameId = null;
+let isSurpriseBoxOpening = false;
+let surpriseUnboxCallback = null;
+
+function showSurpriseUnboxModal(themeId, onComplete, bonusCoins, frameId = null) {
+  currentRevealedSurpriseThemeId = themeId;
+  currentRevealedSurpriseFrameId = frameId;
+  surpriseUnboxCallback = onComplete;
+  isSurpriseBoxOpening = false;
+
+  const modal = document.getElementById("surprise-unbox-modal");
+  const box = document.getElementById("gift-box-interactive");
+  const lid = document.getElementById("gift-lid-wrapper");
+  const rewardStage = document.getElementById("surprise-reward-stage");
+  const titleEl = document.getElementById("surprise-theme-title");
+  const previewContainer = document.getElementById("surprise-preview-container");
+  const equipBtn = document.getElementById("surprise-equip-btn");
+
+  if (!modal || !box || !lid) return;
+
+  // Reset visual state for new reveal
+  lid.classList.remove("lid-popped");
+  box.style.display = "flex";
+  // Restart CSS animation for energetic spring jump
+  box.style.animation = "none";
+  void box.offsetWidth;
+  box.style.animation = "";
+
+  if (rewardStage) rewardStage.style.display = "none";
+
+  if (frameId) {
+    const foundFrame = (typeof AVATAR_FRAMES !== "undefined") ? AVATAR_FRAMES.find(f => f.id === frameId) : null;
+    const frameName = foundFrame ? foundFrame.name : frameId;
+    const frameIcon = foundFrame ? foundFrame.icon : "🖼️";
+
+    if (titleEl) {
+      titleEl.textContent = `${frameIcon} ${frameName} Frame!`;
+    }
+
+    if (previewContainer) {
+      const avatarUrl = currentSession ? currentSession.profile_image_url : '';
+      const avatarInner = (avatarUrl && (avatarUrl.startsWith('/') || avatarUrl.startsWith('http')))
+        ? `<img src="${escapeHTML(avatarUrl)}" class="member-avatar-img" alt="Avatar" style="width:100%;height:100%;border-radius:50%;object-fit:cover;" />`
+        : `<span style="font-size: 2.2rem;">${escapeHTML(avatarUrl || '👤')}</span>`;
+
+      previewContainer.innerHTML = `
+        <div style="display: flex; flex-direction: column; align-items: center; gap: 10px;">
+          <span class="avatar-frame-badge frame-${escapeHTML(frameId)}" style="width: 72px; height: 72px; display: inline-flex; align-items: center; justify-content: center;">
+            ${avatarInner}
+          </span>
+          <p style="font-weight: 700; color: #3b82f6; margin-top: 0.25rem; font-size: 0.95rem;">
+            New Avatar Frame Unlocked!
+          </p>
+        </div>
+      `;
+    }
+
+    if (equipBtn) {
+      equipBtn.textContent = "Equip Frame ✨";
+      equipBtn.style.display = "inline-flex";
+    }
+
+    // Update session unlocked frames
+    if (currentSession) {
+      if (!Array.isArray(currentSession.unlocked_avatar_frames)) {
+        currentSession.unlocked_avatar_frames = ["none"];
+      }
+      if (!currentSession.unlocked_avatar_frames.includes(frameId)) {
+        currentSession.unlocked_avatar_frames.push(frameId);
+      }
+      try {
+        localStorage.setItem("chorecraft_session", JSON.stringify(currentSession));
+      } catch (e) {}
+    }
+  } else if (themeId) {
+    const foundTheme = POINTS_THEMES.find(t => t.id === themeId);
+    const themeName = foundTheme ? foundTheme.name : themeId;
+    const themeBadge = foundTheme ? foundTheme.badge : "🎁";
+
+    if (titleEl) {
+      titleEl.textContent = `${themeBadge} ${themeName}`;
+    }
+
+    if (previewContainer) {
+      previewContainer.innerHTML = `
+        <div class="user-coins-pill theme-${themeId}">
+          ${getPointsBackgroundDecorHtml(themeId)}
+          <div class="coin-chip">
+            <span class="coin-icon">🪙</span>
+            <span class="coin-amount">15</span>
+          </div>
+          <div class="coin-chip coop-chip">
+            <span class="coin-icon">🐱🐱</span>
+            <span class="coin-amount">8</span>
+          </div>
+        </div>
+      `;
+    }
+
+    if (equipBtn) {
+      equipBtn.textContent = "Equip Theme ✨";
+      equipBtn.style.display = "inline-flex";
+    }
+
+    // Update session unlocked list
+    if (currentSession) {
+      if (!Array.isArray(currentSession.unlocked_backgrounds)) {
+        currentSession.unlocked_backgrounds = ["default", "autumn_leaves", "golden_stars"];
+      }
+      if (!currentSession.unlocked_backgrounds.includes(themeId)) {
+        currentSession.unlocked_backgrounds.push(themeId);
+      }
+      try {
+        localStorage.setItem("chorecraft_session", JSON.stringify(currentSession));
+      } catch (e) {}
+    }
+  } else {
+    // All surprises collected fallback coins reward
+    const coins = bonusCoins || 5;
+    if (titleEl) {
+      titleEl.textContent = `✨ +${coins} Bonus Coins! ✨`;
+    }
+    if (previewContainer) {
+      previewContainer.innerHTML = `
+        <div style="font-size: 3.5rem; filter: drop-shadow(0 4px 12px rgba(245, 158, 11, 0.5)); animation: wheelBounce 1.5s infinite ease-in-out;">
+          🪙
+        </div>
+        <p style="font-weight: 700; color: #f59e0b; margin-top: 0.5rem; font-size: 1.05rem;">
+          All surprise cosmetics collected! Enjoy your bonus coins!
+        </p>
+      `;
+    }
+    if (equipBtn) {
+      equipBtn.textContent = "Awesome! 🎉";
+      equipBtn.style.display = "inline-flex";
+    }
+  }
+
+  modal.style.display = "flex";
+}
+
+function handleOpenSurpriseBoxClick(e) {
+  if (e && typeof e.stopPropagation === "function") e.stopPropagation();
+  if (isSurpriseBoxOpening) return;
+  isSurpriseBoxOpening = true;
+
+  const lid = document.getElementById("gift-lid-wrapper");
+  const box = document.getElementById("gift-box-interactive");
+  const rewardStage = document.getElementById("surprise-reward-stage");
+
+  if (lid) lid.classList.add("lid-popped");
+
+  // Initial burst of celebratory confetti & sparkles!
+  triggerConfetti();
+
+  setTimeout(() => {
+    if (box) box.style.display = "none";
+    if (rewardStage) rewardStage.style.display = "flex";
+    triggerConfetti();
+  }, 400);
+}
+
+function handleSurpriseBackdropClick(e) {
+  const box = document.getElementById("gift-box-interactive");
+  const rewardStage = document.getElementById("surprise-reward-stage");
+  // If box is showing, any click anywhere on screen opens it!
+  if (box && box.style.display !== "none" && (!rewardStage || rewardStage.style.display === "none")) {
+    handleOpenSurpriseBoxClick(e);
+  } else if (e && (e.target.id === "surprise-unbox-modal" || e.target.classList.contains("surprise-unbox-backdrop"))) {
+    handleDismissSurpriseModal();
+  }
+}
+
+async function handleEquipSurpriseTheme() {
+  const modal = document.getElementById("surprise-unbox-modal");
+  if (modal) modal.style.display = "none";
+  isSurpriseBoxOpening = false;
+
+  if (currentRevealedSurpriseFrameId && currentSession) {
+    try {
+      const groupId = currentSession.choregroup_id;
+      const userId = currentSession.user_id;
+      await apiCall(`/choregroups/${groupId}/members/${userId}/avatar-frame`, "PUT", {
+        avatar_frame: currentRevealedSurpriseFrameId
+      });
+      currentSession.avatar_frame = currentRevealedSurpriseFrameId;
+      localStorage.setItem("chorecraft_session", JSON.stringify(currentSession));
+      showToast(`Equipped frame! ✨`);
+    } catch (err) {
+      console.error("Failed to equip avatar frame:", err);
+    }
+  } else if (currentRevealedSurpriseThemeId) {
+    await selectPointsBackground(currentRevealedSurpriseThemeId);
+  }
+
+  if (typeof surpriseUnboxCallback === "function") {
+    surpriseUnboxCallback();
+  }
+  drawWheelCanvas();
+  updateHeaderAuthBtn();
+  if (currentSession && currentSession.role === "admin") {
+    renderParentDashboard();
+  } else {
+    renderKidDashboard();
+  }
+}
+
+function handleDismissSurpriseModal() {
+  const modal = document.getElementById("surprise-unbox-modal");
+  if (modal) modal.style.display = "none";
+  isSurpriseBoxOpening = false;
+
+  if (typeof surpriseUnboxCallback === "function") {
+    surpriseUnboxCallback();
+  }
+  drawWheelCanvas();
+  updateHeaderAuthBtn();
+}
+
+async function handleMilestoneSurpriseClick() {
+  if (!currentDailyBonus || !currentSession || currentSession.role !== "user") return;
+  const completed = currentDailyBonus.tasks_completed || 0;
+  if (completed < 10) {
+    showToast(`Complete ${10 - completed} more tasks today to unlock the surprise! 🎁`, "info");
+    return;
+  }
+  if (currentDailyBonus.surprise_claimed) {
+    showToast("Today's surprise has already been claimed! Check back tomorrow! ✨", "info");
+    return;
+  }
+  await claimDailySurprise();
+}
+
+async function claimDailySurprise() {
+  if (!currentSession || !currentSession.choregroup_id) return;
+  try {
+    const res = await apiFetch(`/choregroups/${currentSession.choregroup_id}/daily-bonus/claim-surprise`, {
+      method: "POST"
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      showToast(data.error || data.message || "Could not claim surprise", "error");
+      return;
+    }
+
+    if (currentDailyBonus) {
+      currentDailyBonus.surprise_claimed = true;
+      renderDailyBonusBar(currentDailyBonus);
+    }
+
+    if (data.user_points !== undefined && currentSession) {
+      currentSession.points = data.user_points;
+      updateHeaderAuthBtn();
+    }
+
+    // Trigger glowing unbox modal!
+    if (data.frame_id) {
+      showSurpriseUnboxModal(null, async () => {
+        await refreshDailyBonus();
+        await fetchAndRenderHistory();
+      }, null, data.frame_id);
+    } else if (data.theme_id) {
+      showSurpriseUnboxModal(data.theme_id, async () => {
+        await refreshDailyBonus();
+        await fetchAndRenderHistory();
+      });
+    } else if (data.bonus_coins) {
+      showSurpriseUnboxModal(null, async () => {
+        await refreshDailyBonus();
+        await fetchAndRenderHistory();
+      }, data.bonus_coins);
+    }
+  } catch (err) {
+    console.error("claimDailySurprise error:", err);
+    showToast("Error claiming surprise: " + err.message, "error");
+  }
+}
+
+window.handleOpenSurpriseBoxClick = handleOpenSurpriseBoxClick;
+window.handleSurpriseBackdropClick = handleSurpriseBackdropClick;
+window.handleEquipSurpriseTheme = handleEquipSurpriseTheme;
+window.handleDismissSurpriseModal = handleDismissSurpriseModal;
+window.showSurpriseUnboxModal = showSurpriseUnboxModal;
+window.isAllSurprisesUnlocked = isAllSurprisesUnlocked;
+window.handleMilestoneSurpriseClick = handleMilestoneSurpriseClick;
+window.claimDailySurprise = claimDailySurprise;
+
+function openPointsBackgroundModal() {
+  if (!currentSession) return;
+  const currentTheme = currentSession.points_background || "default";
+
+  // Update preview numbers
+  const indEl = document.getElementById("preview-coin-amount-individual");
+  const coopEl = document.getElementById("preview-coin-amount-cooperative");
+  if (indEl) indEl.textContent = currentSession.points || 0;
+  if (coopEl) coopEl.textContent = currentSession.cooperative_points || 0;
+
+  updatePointsBgPreview(currentTheme);
+  renderPointsBackgroundGrid();
+  openModal("points-bg-modal");
+}
+
+function updatePointsBgPreview(themeId) {
+  const pill = document.getElementById("points-bg-preview-pill");
+  if (!pill) return;
+
+  POINTS_THEMES.forEach(t => {
+    pill.classList.remove(`theme-${t.id}`);
+  });
+  if (themeId && themeId !== "default") {
+    pill.classList.add(`theme-${themeId}`);
+  }
+
+  pill.querySelectorAll(".pill-decor").forEach(el => el.remove());
+  const decorHtml = getPointsBackgroundDecorHtml(themeId);
+  if (decorHtml) {
+    pill.insertAdjacentHTML("afterbegin", decorHtml);
+  }
+}
+
+function handleLockedCardClick(cardEl) {
+  if (!cardEl) return;
+  cardEl.classList.remove("shake");
+  void cardEl.offsetWidth; // Trigger reflow
+  cardEl.classList.add("shake");
+  setTimeout(() => cardEl.classList.remove("shake"), 450);
+
+  // Ensure preview stays on current acquired background and never shows locked theme
+  if (currentSession && currentSession.points_background) {
+    updatePointsBgPreview(currentSession.points_background);
+  }
+}
+
+function renderPointsBackgroundGrid() {
+  const grid = document.getElementById("points-bg-themes-grid");
+  if (!grid || !currentSession) return;
+
+  const isAdmin = currentSession.role === "admin";
+  const currentBg = currentSession.points_background || "default";
+  const unlocked = Array.isArray(currentSession.unlocked_backgrounds)
+    ? currentSession.unlocked_backgrounds
+    : ["default", "autumn_leaves", "golden_stars"];
+
+  grid.innerHTML = POINTS_THEMES.map(theme => {
+    const isUnlocked = isAdmin || unlocked.includes(theme.id);
+    const isActive = (currentBg === theme.id);
+    const cardClass = isActive ? "active" : (isUnlocked ? "unlocked" : "locked");
+
+    let indicatorHtml = "";
+    let clickAttr = "";
+
+    if (isActive) {
+      indicatorHtml = '<span class="points-card-indicator active">✓</span>';
+      clickAttr = `selectPointsBackground('${theme.id}')`;
+    } else if (isUnlocked) {
+      clickAttr = `selectPointsBackground('${theme.id}')`;
+    } else {
+      const symbol = theme.lockSymbol || "🎡";
+      indicatorHtml = `<span class="points-card-indicator locked-symbol">${symbol}</span>`;
+      clickAttr = "handleLockedCardClick(this)";
+    }
+
+    const hoverAttr = isUnlocked
+      ? `onmouseenter="updatePointsBgPreview('${theme.id}')" onmouseleave="updatePointsBgPreview((currentSession &amp;&amp; currentSession.points_background) || 'default')"`
+      : "";
+
+    return `
+      <div class="points-bg-card ${cardClass}"
+           onclick="${clickAttr}"
+           ${hoverAttr}>
+        <div class="points-bg-card-badge">${theme.badge}</div>
+        ${indicatorHtml}
+      </div>
+    `;
+  }).join("");
+}
+
+async function selectPointsBackground(themeId) {
+  if (!currentSession) return;
+  const groupId = currentSession.choregroup_id;
+  const userId = currentSession.id || currentSession.user_id;
+
+  try {
+    const res = await apiCall(`/choregroups/${groupId}/members/${userId}/points-background`, "PUT", {
+      background: themeId
+    });
+
+    currentSession.points_background = res.points_background || themeId;
+    if (res.unlocked_backgrounds) {
+      currentSession.unlocked_backgrounds = res.unlocked_backgrounds;
+    }
+    localStorage.setItem("chorecraft_session", JSON.stringify(currentSession));
+
+    updateHeaderAuthBtn();
+    updatePointsBgPreview(currentSession.points_background);
+    renderPointsBackgroundGrid();
+  } catch (err) {
+    console.error("Failed to update points background:", err);
+    showToast(err.message || "Error updating background");
+  }
+}
+
+window.POINTS_THEMES = POINTS_THEMES;
+window.getPointsBackgroundDecorHtml = getPointsBackgroundDecorHtml;
+window.openPointsBackgroundModal = openPointsBackgroundModal;
+window.updatePointsBgPreview = updatePointsBgPreview;
+window.renderPointsBackgroundGrid = renderPointsBackgroundGrid;
+window.selectPointsBackground = selectPointsBackground;
+window.triggerConfetti = triggerConfetti;
+window.handleLockedCardClick = handleLockedCardClick;
+
+/* ==========================================================================
+   HOUSEHOLD ACTIVITY HISTORY MODULE
+   ========================================================================== */
+
+let historyWeekOffset = 0; // 0 = current week, -1 = last week, etc.
+let historyCurrentFilter = {
+  userId: "",
+  category: "all"
+};
+
+// Activity type to category mapping
+function getActivityCategory(type) {
+  if (!type) return "chores";
+  if (type.startsWith("chore_")) return "chores";
+  if (type.startsWith("reward_")) return "rewards";
+  if (type.startsWith("wheel_")) return "wheel";
+  if (type.startsWith("theme_")) return "themes";
+  if (type.startsWith("member_")) return "members";
+  return "chores";
+}
+
+// Visual badge, emoji, and styling per activity
+function getActivityVisuals(event) {
+  const type = event.activity_type || "";
+  switch (type) {
+    case "chore_created":
+      return { icon: "📋", badgeClass: "cat-badge-chore", actionLabel: "Chore Created" };
+    case "chore_submitted":
+      return { icon: "📤", badgeClass: "cat-badge-chore", actionLabel: "Chore Submitted" };
+    case "chore_approved":
+      return { icon: "✅", badgeClass: "cat-badge-chore", actionLabel: "Chore Approved" };
+    case "chore_rejected":
+      return { icon: "❌", badgeClass: "cat-badge-chore", actionLabel: "Chore Rejected" };
+    case "chore_deleted":
+    case "task_deleted":
+      return { icon: "🗑️📋", badgeClass: "cat-badge-chore", actionLabel: "Chore Deleted" };
+    case "reward_purchased":
+      return { icon: "🎁", badgeClass: "cat-badge-reward", actionLabel: "Reward Purchased" };
+    case "reward_fulfilled":
+      return { icon: "🏆", badgeClass: "cat-badge-reward", actionLabel: "Reward Fulfilled" };
+    case "reward_cancelled":
+      return { icon: "↩️", badgeClass: "cat-badge-reward", actionLabel: "Purchase Cancelled" };
+    case "wheel_spun":
+      return { icon: "🎡", badgeClass: "cat-badge-wheel", actionLabel: "Lucky Wheel" };
+    case "theme_changed":
+      return { icon: "🎨", badgeClass: "cat-badge-theme", actionLabel: "Theme Changed" };
+    case "member_joined":
+      return { icon: "👤", badgeClass: "cat-badge-member", actionLabel: "Member Joined" };
+    default:
+      return { icon: "✨", badgeClass: "cat-badge-chore", actionLabel: "Activity" };
+  }
+}
+
+// Relative time formatter
+function formatActivityRelativeTime(isoDateStr) {
+  if (!isoDateStr) return "";
+  const d = new Date(isoDateStr);
+  const now = new Date();
+  const diffMs = now - d;
+  const diffSec = Math.floor(diffMs / 1000);
+  const diffMin = Math.floor(diffSec / 60);
+  const diffHour = Math.floor(diffMin / 60);
+  const diffDays = Math.floor(diffHour / 24);
+
+  if (diffSec < 60) return "Just now";
+  if (diffMin < 60) return `${diffMin}m ago`;
+  if (diffHour < 24) return `${diffHour}h ago`;
+  if (diffDays === 1) return `Yesterday ${d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`;
+  if (diffDays < 7) return `${diffDays}d ago`;
+  return d.toLocaleDateString([], { month: 'short', day: 'numeric' });
+}
+
+// Format exact time e.g. 14:30
+function formatActivityTime(isoDateStr) {
+  if (!isoDateStr) return "";
+  const d = new Date(isoDateStr);
+  return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+}
+
+// Format Day Group Header e.g. "Today • Monday, Sep 14"
+function formatActivityDayHeader(dateKey) {
+  const [year, month, day] = dateKey.split('-').map(Number);
+  const date = new Date(year, month - 1, day);
+  const today = new Date();
+  const yesterday = new Date();
+  yesterday.setDate(today.getDate() - 1);
+
+  const isToday = date.getFullYear() === today.getFullYear() &&
+                  date.getMonth() === today.getMonth() &&
+                  date.getDate() === today.getDate();
+
+  const isYesterday = date.getFullYear() === yesterday.getFullYear() &&
+                      date.getMonth() === yesterday.getMonth() &&
+                      date.getDate() === yesterday.getDate();
+
+  const dayName = date.toLocaleDateString('en-US', { weekday: 'long' });
+  const monthDay = date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+
+  if (isToday) return `Today • ${dayName}, ${monthDay}`;
+  if (isYesterday) return `Yesterday • ${dayName}, ${monthDay}`;
+  return `${dayName} • ${monthDay}, ${year}`;
+}
+
+// Calculate week range (Sunday to Saturday) based on offsetWeeks
+function getHistoryWeekRange(offsetWeeks = 0) {
+  const now = new Date();
+  const dayOfWeek = now.getDay(); // 0 = Sun, 1 = Mon, etc.
+  const start = new Date(now);
+  start.setDate(now.getDate() - dayOfWeek + (offsetWeeks * 7));
+  start.setHours(0, 0, 0, 0);
+
+  const end = new Date(start);
+  end.setDate(start.getDate() + 6);
+  end.setHours(23, 59, 59, 999);
+
+  return { start, end };
+}
+
+function extractCleanItemName(rawStr) {
+  if (!rawStr) return "";
+  let clean = String(rawStr).trim();
+  clean = clean.replace(/^[a-zA-Z0-9_\u0590-\u05FF-]+\s+(completed chore|submitted chore|deleted chore|purchased reward|deleted reward|created reward):\s*/i, '');
+  clean = clean.replace(/\s*\([+-]?\d+\s*coins?\)\s*$/i, '');
+  clean = clean.replace(/^["'“](.*)["'”]$/, '$1');
+  return clean.trim();
+}
+
+function renderAuditFlowRow(evt, timeFormat = 'relative') {
+  try {
+    const username = evt.user_username || (currentSession ? currentSession.username : 'User');
+    const role = evt.user_role || (currentSession ? currentSession.role : 'user');
+    const isAdmin = role === 'admin';
+
+    // 1. user_profile_image: user_name
+    let avatarHtml = '';
+    const profileImg = evt.user_profile_image;
+    if (profileImg && (profileImg.startsWith('/') || profileImg.startsWith('http'))) {
+      avatarHtml = `<span class="audit-user-avatar"><img src="${escapeHTML(profileImg)}" alt="${escapeHTML(username)}" /></span>`;
+    } else if (profileImg && profileImg.trim()) {
+      avatarHtml = `<span class="audit-user-avatar">${escapeHTML(profileImg)}</span>`;
+    } else {
+      avatarHtml = `<span class="audit-user-avatar">${isAdmin ? '👑' : '👤'}</span>`;
+    }
+
+    // 2. action_icon: action_name
+    // Supported audit actions: task completed, task deleted, wheel spin, reward obtained, reward created, reward deleted
+    const actType = (evt.activity_type || '').toLowerCase();
+    let actionIcon = '✨';
+    let actionName = 'action';
+    let outcomeIcon = '';
+    let outcomeDetails = '';
+    let outcomeClass = '';
+
+    const meta = evt.metadata || {};
+
+    if (actType === 'task_completed' || actType === 'chore_approved') {
+      actionIcon = '✅';
+      const itemName = meta.title || extractCleanItemName(evt.description) || 'task';
+      actionName = `<span class="audit-target-name">"${escapeHTML(itemName)}"</span>`;
+      if (typeof meta.points === 'number') {
+        if (meta.points === 0) {
+          outcomeIcon = '🚨';
+          outcomeDetails = '';
+          outcomeClass = 'outcome-mandatory';
+        } else {
+          outcomeIcon = '🪙';
+          outcomeDetails = `+${meta.points}`;
+          outcomeClass = 'outcome-positive';
+        }
+      }
+    } else if (actType === 'task_deleted' || actType === 'chore_deleted') {
+      actionIcon = '🗑️📋';
+      const itemName = meta.title || extractCleanItemName(evt.description) || 'task';
+      actionName = `<span class="audit-target-name">"${escapeHTML(itemName)}"</span>`;
+    } else if (actType === 'wheel_spin' || actType === 'wheel_spun') {
+      actionIcon = '🎡';
+      actionName = 'spun wheel';
+      if (meta.surprise_frame) {
+        outcomeIcon = '🖼️';
+        const foundFrame = (typeof AVATAR_FRAMES !== "undefined") ? AVATAR_FRAMES.find(f => f.id === meta.surprise_frame) : null;
+        const frameLabel = foundFrame ? (foundFrame.name || foundFrame.id) : meta.surprise_frame;
+        outcomeDetails = `Surprise: ${escapeHTML(frameLabel)}`;
+        outcomeClass = 'outcome-surprise';
+      } else if (meta.surprise_background) {
+        outcomeIcon = '🎁';
+        const foundTheme = (typeof POINTS_THEMES !== "undefined") ? POINTS_THEMES.find(t => t.id === meta.surprise_background) : null;
+        const themeLabel = foundTheme ? (foundTheme.name || foundTheme.id) : meta.surprise_background;
+        outcomeDetails = `Surprise: ${escapeHTML(themeLabel)}`;
+        outcomeClass = 'outcome-surprise';
+      } else if (typeof meta.amount === 'number' && meta.amount > 0) {
+        outcomeIcon = '🪙';
+        outcomeDetails = `+${meta.amount}`;
+        outcomeClass = 'outcome-positive';
+      } else if (meta.label) {
+        outcomeIcon = '🚫';
+        outcomeDetails = `${escapeHTML(meta.label)}`;
+      }
+    } else if (actType === 'reward_obtained' || actType === 'reward_purchased' || actType === 'reward_fulfilled') {
+      actionIcon = '🎁';
+      const itemName = meta.name || extractCleanItemName(evt.description) || 'reward';
+      actionName = `<span class="audit-target-name">"${escapeHTML(itemName)}"</span>`;
+      if (typeof meta.cost === 'number' && meta.cost > 0) {
+        outcomeIcon = '🪙';
+        outcomeDetails = `-${meta.cost}`;
+        outcomeClass = 'outcome-negative';
+      }
+    } else if (actType === 'reward_created') {
+      actionIcon = '➕';
+      const itemName = meta.name || extractCleanItemName(evt.description) || 'reward';
+      actionName = `created reward <span class="audit-target-name">"${escapeHTML(itemName)}"</span>`;
+      if (typeof meta.cost === 'number' && meta.cost > 0) {
+        outcomeIcon = '🪙';
+        outcomeDetails = `${meta.cost}`;
+      }
+    } else if (actType === 'reward_deleted') {
+      actionIcon = '🗑️🎁';
+      const itemName = meta.name || extractCleanItemName(evt.description) || 'reward';
+      actionName = `<span class="audit-target-name">"${escapeHTML(itemName)}"</span>`;
+    } else {
+      actionIcon = '📝';
+      actionName = escapeHTML(evt.title || 'action');
+    }
+
+    // 3. outcome_icon: outcome_details if needed (placed on line 2 right side)
+    let outcomeHtml = '';
+    if (outcomeIcon) {
+      const outcomeTooltip = (outcomeClass === 'outcome-mandatory') ? 'title="Mandatory Chore"' : '';
+      outcomeHtml = `
+        <span class="audit-seg-outcome ${outcomeClass}" ${outcomeTooltip}>
+          <span>${outcomeIcon}</span>${outcomeDetails ? `<span>${outcomeDetails}</span>` : ''}
+        </span>
+      `;
+    }
+
+    // 4. Timestamp (placed on line 1 right side)
+    const timeStr = (timeFormat === 'time')
+      ? formatActivityTime(evt.created_at)
+      : formatActivityRelativeTime(evt.created_at);
+
+    return `
+      <div class="history-audit-row">
+        <div class="audit-row-line1">
+          <span class="audit-seg-user">
+            ${avatarHtml}
+            <span class="audit-user-name">${escapeHTML(username)}</span>
+          </span>
+          <span class="audit-row-time" title="${escapeHTML(evt.created_at || '')}">${timeStr}</span>
+        </div>
+        <div class="audit-row-line2">
+          <span class="audit-seg-action">
+            <span class="audit-action-icon">${actionIcon}</span>
+            <span class="audit-action-text">${actionName}</span>
+          </span>
+          ${outcomeHtml}
+        </div>
+      </div>
+    `;
+  } catch (err) {
+    console.error("Error rendering audit flow row:", err, evt);
+    return `
+      <div class="history-audit-row">
+        <div class="audit-row-line1">
+          <span class="audit-seg-user">
+            <span class="audit-user-avatar">👤</span>
+            <span class="audit-user-name">${escapeHTML(evt.user_username || 'User')}</span>
+          </span>
+          <span class="audit-row-time">${formatActivityRelativeTime(evt.created_at)}</span>
+        </div>
+        <div class="audit-row-line2">
+          <span class="audit-seg-action">
+            <span class="audit-action-icon">📝</span>
+            <span class="audit-action-text">${escapeHTML(evt.title || evt.description || 'Activity')}</span>
+          </span>
+        </div>
+      </div>
+    `;
+  }
+}
+
+// Load the 3 most recent activities for the header dropdown
+async function loadRecentHistory() {
+  if (!currentSession) return;
+  const listEl = document.getElementById("history-dropdown-list");
+  if (!listEl) return;
+
+  try {
+    const events = await apiCall(`/choregroups/${currentSession.choregroup_id}/history/recent`);
+    if (!events || events.length === 0) {
+      listEl.innerHTML = `
+        <div class="dropdown-item">
+          <div class="dropdown-item-icon">✨</div>
+          <div class="dropdown-item-content">
+            <strong>No Recent Activity</strong>
+            <span>Completed chores and actions will appear here.</span>
+          </div>
+        </div>
+      `;
+      return;
+    }
+
+    listEl.innerHTML = events.map(evt => {
+      try {
+        return renderAuditFlowRow(evt, 'relative');
+      } catch (e) {
+        console.warn("Failed rendering history row:", e, evt);
+        return "";
+      }
+    }).join("");
+  } catch (err) {
+    console.error("Failed to load recent history:", err);
+    listEl.innerHTML = `
+      <div class="dropdown-item">
+        <div class="dropdown-item-icon">⚠️</div>
+        <div class="dropdown-item-content">
+          <span>Failed to load activity history.</span>
+        </div>
+      </div>
+    `;
+  }
+}
+
+let historyViewMode = "all"; // "all" or "week"
+
+function setHistoryViewMode(mode) {
+  historyViewMode = mode;
+  if (mode === "week") {
+    historyWeekOffset = 0;
+  }
+  fetchAndRenderFullHistory();
+}
+
+// Open Full History Modal
+async function openFullHistoryModal(event) {
+  if (event) event.stopPropagation();
+
+  // Close dropdown if open and blur trigger
+  const menu = document.getElementById('history-dropdown-menu');
+  if (menu) menu.classList.remove('active');
+  const trigger = document.getElementById('history-trigger-btn');
+  if (trigger) {
+    trigger.classList.remove('is-active');
+    trigger.setAttribute('aria-expanded', 'false');
+    trigger.blur();
+  }
+
+  const modal = document.getElementById("full-history-modal");
+  if (!modal) return;
+
+  historyViewMode = "all"; // Default to all history so "Show more..." displays the full history
+  historyWeekOffset = 0;
+  historyCurrentFilter.userId = "";
+  historyCurrentFilter.category = "all";
+
+  // Setup filters based on role
+  const userFilterContainer = document.getElementById("history-user-filter-container");
+  const userSelect = document.getElementById("history-user-filter");
+  const categorySelect = document.getElementById("history-category-filter");
+
+  if (categorySelect) categorySelect.value = "all";
+
+  if (currentSession && currentSession.role === "admin") {
+    if (userFilterContainer) userFilterContainer.style.display = "flex";
+    // Populate user filter options
+    if (userSelect) {
+      userSelect.innerHTML = `<option value="">All Members</option>`;
+      try {
+        const members = await apiCall(`/choregroups/${currentSession.choregroup_id}/members`);
+        if (members && members.length > 0) {
+          members.forEach(m => {
+            const opt = document.createElement("option");
+            opt.value = m.id;
+            opt.textContent = `${m.username} (${m.role === 'admin' ? 'Admin' : 'User'})`;
+            userSelect.appendChild(opt);
+          });
+        }
+      } catch (e) {
+        console.warn("Could not populate members filter:", e);
+      }
+      userSelect.value = "";
+    }
+  } else {
+    // Regular users only see their own activities, lock filter to their user ID
+    if (currentSession) {
+      historyCurrentFilter.userId = currentSession.user_id || currentSession.id;
+    }
+    if (userFilterContainer) userFilterContainer.style.display = "none";
+  }
+
+  // Open modal using system openModal (adds .active class and enables pointer events)
+  openModal("full-history-modal");
+  await fetchAndRenderFullHistory();
+}
+
+function closeFullHistoryModal() {
+  closeModal("full-history-modal");
+  const trigger = document.getElementById('history-trigger-btn');
+  if (trigger) {
+    trigger.classList.remove('is-active');
+    trigger.setAttribute('aria-expanded', 'false');
+    trigger.blur();
+  }
+}
+
+function navigateHistoryWeek(delta) {
+  historyWeekOffset += delta;
+  if (historyWeekOffset > 0) historyWeekOffset = 0; // Don't navigate into future weeks
+  fetchAndRenderFullHistory();
+}
+
+function jumpToCurrentWeek() {
+  historyWeekOffset = 0;
+  fetchAndRenderFullHistory();
+}
+
+function onHistoryFilterChange() {
+  const userSelect = document.getElementById("history-user-filter");
+  const categorySelect = document.getElementById("history-category-filter");
+
+  historyCurrentFilter.userId = userSelect ? userSelect.value : "";
+  historyCurrentFilter.category = categorySelect ? categorySelect.value : "all";
+
+  fetchAndRenderFullHistory();
+}
+
+// Fetch and render the timeline for full history modal
+async function fetchAndRenderFullHistory() {
+  if (!currentSession) return;
+  const container = document.getElementById("history-timeline-container");
+  const rangeText = document.getElementById("history-range-text");
+  const prevBtn = document.getElementById("history-prev-week-btn");
+  const nextBtn = document.getElementById("history-next-week-btn");
+  const thisWeekBtn = document.getElementById("history-this-week-btn");
+  const modeAllBtn = document.getElementById("history-mode-all-btn");
+  const modeWeekBtn = document.getElementById("history-mode-week-btn");
+
+  if (!container) return;
+
+  // Toggle Mode Buttons & Controls
+  if (modeAllBtn && modeWeekBtn) {
+    if (historyViewMode === "all") {
+      modeAllBtn.classList.add("active");
+      modeWeekBtn.classList.remove("active");
+      if (prevBtn) prevBtn.style.display = "none";
+      if (nextBtn) nextBtn.style.display = "none";
+      if (thisWeekBtn) thisWeekBtn.style.display = "none";
+      if (rangeText) rangeText.textContent = "All Recorded Activities";
+    } else {
+      modeAllBtn.classList.remove("active");
+      modeWeekBtn.classList.add("active");
+      if (prevBtn) prevBtn.style.display = "inline-flex";
+      if (nextBtn) nextBtn.style.display = "inline-flex";
+
+      const { start, end } = getHistoryWeekRange(historyWeekOffset);
+      const startStr = start.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+      const endStr = end.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+      const isThisWeek = historyWeekOffset === 0;
+
+      if (rangeText) {
+        rangeText.textContent = `${startStr} – ${endStr}${isThisWeek ? ' (Current Week)' : ''}`;
+      }
+
+      if (nextBtn) {
+        nextBtn.disabled = isThisWeek;
+        nextBtn.style.opacity = isThisWeek ? "0.4" : "1";
+        nextBtn.style.cursor = isThisWeek ? "not-allowed" : "pointer";
+      }
+      if (thisWeekBtn) {
+        thisWeekBtn.style.display = isThisWeek ? "none" : "inline-block";
+      }
+    }
+  }
+
+  container.innerHTML = `
+    <div style="text-align: center; padding: 2.5rem 1rem; color: var(--text-muted);">
+      <div style="font-size: 2rem; margin-bottom: 0.5rem; animation: spin 1s linear infinite;">⏳</div>
+      <div>Loading activities...</div>
+    </div>
+  `;
+
+  try {
+    const params = new URLSearchParams();
+
+    // In week mode, pass start_date and end_date; in all mode, omit dates to fetch all history
+    if (historyViewMode === "week") {
+      const { start, end } = getHistoryWeekRange(historyWeekOffset);
+      params.append("start_date", start.toISOString());
+      params.append("end_date", end.toISOString());
+    }
+
+    if (currentSession && currentSession.role !== "admin") {
+      historyCurrentFilter.userId = currentSession.user_id || currentSession.id;
+    }
+
+    if (historyCurrentFilter.userId) {
+      params.append("user_id", historyCurrentFilter.userId);
+    }
+    if (historyCurrentFilter.category && historyCurrentFilter.category !== "all") {
+      params.append("activity_category", historyCurrentFilter.category);
+    }
+    params.append("limit", "100");
+
+    const res = await apiCall(`/choregroups/${currentSession.choregroup_id}/history?${params.toString()}`);
+    const events = res && res.events ? res.events : [];
+    const totalCount = (res && typeof res.total_count === "number") ? res.total_count : events.length;
+
+    if (rangeText && historyViewMode === "all") {
+      const label = (currentSession && currentSession.role === "admin") ? "All Activities" : "My Activities";
+      rangeText.textContent = `${label} (${totalCount})`;
+    }
+
+    if (events.length === 0) {
+      container.innerHTML = `
+        <div class="history-empty-state">
+          <div class="history-empty-icon">🍃</div>
+          <h4 style="margin: 0 0 0.25rem 0; color: var(--text-main);">No Activities Found</h4>
+          <p style="margin: 0; font-size: 0.85rem;">No actions matching this filter were recorded.</p>
+        </div>
+      `;
+      return;
+    }
+
+    // Group events by day (YYYY-MM-DD)
+    const dayGroups = {};
+    events.forEach(evt => {
+      const dayKey = evt.created_at ? evt.created_at.split("T")[0] : "Other";
+      if (!dayGroups[dayKey]) dayGroups[dayKey] = [];
+      dayGroups[dayKey].push(evt);
+    });
+
+    let html = "";
+    Object.keys(dayGroups).forEach(dayKey => {
+      const dayEvents = dayGroups[dayKey];
+      const headerTitle = formatActivityDayHeader(dayKey);
+
+      html += `
+        <div class="history-day-group">
+          <div class="history-day-header">
+            <span>📅</span>
+            <span>${headerTitle}</span>
+            <span style="font-weight: 500; opacity: 0.7; margin-left: auto;">(${dayEvents.length})</span>
+          </div>
+          <div class="history-day-list">
+      `;
+
+      dayEvents.forEach(evt => {
+        html += renderAuditFlowRow(evt, 'time');
+      });
+
+      html += `
+          </div>
+        </div>
+      `;
+    });
+
+    container.innerHTML = html;
+  } catch (err) {
+    console.error("Failed to fetch full history:", err);
+    container.innerHTML = `
+      <div class="history-empty-state">
+        <div class="history-empty-icon">⚠️</div>
+        <h4 style="margin: 0 0 0.25rem 0; color: var(--text-main);">Error Loading History</h4>
+        <p style="margin: 0; font-size: 0.85rem;">${escapeHTML(err.message || "Failed to communicate with server.")}</p>
+      </div>
+    `;
+  }
+}
+
+window.loadRecentHistory = loadRecentHistory;
+window.openFullHistoryModal = openFullHistoryModal;
+window.openFullHistoryModalImpl = openFullHistoryModal;
+window.closeFullHistoryModal = closeFullHistoryModal;
+window.navigateHistoryWeek = navigateHistoryWeek;
+window.jumpToCurrentWeek = jumpToCurrentWeek;
+window.onHistoryFilterChange = onHistoryFilterChange;
+window.setHistoryViewMode = setHistoryViewMode;
+window.fetchAndRenderFullHistory = fetchAndRenderFullHistory;
+
+
 
 
 

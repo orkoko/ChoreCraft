@@ -15,6 +15,7 @@ type ChoreGroup struct {
 	Name              string    `json:"name"`
 	CooperativePoints int       `json:"cooperative_points"`
 	AILanguage        string    `json:"ai_language"`
+	AIInstructions    string    `json:"ai_instructions"`
 }
 
 // User represents the users table.
@@ -28,11 +29,25 @@ type User struct {
 	NotificationsViewed   bool      `json:"notifications_viewed"`
 	HasClaimedWelcomeSpin bool      `json:"has_claimed_welcome_spin"`
 	ProfileImageURL       *string   `json:"profile_image_url,omitempty"`
+	PointsBackground      string    `json:"points_background"`
+	UnlockedBackgrounds   []string  `json:"unlocked_backgrounds"`
+	AvatarFrame           string    `json:"avatar_frame"`
+	UnlockedAvatarFrames  []string  `json:"unlocked_avatar_frames"`
 }
 
 // UpdateAvatarRequest defines the body for updating a user's profile image / avatar.
 type UpdateAvatarRequest struct {
 	AvatarURL string `json:"avatar_url"`
+}
+
+// UpdateAvatarFrameRequest defines the body for updating a user's equipped avatar frame.
+type UpdateAvatarFrameRequest struct {
+	AvatarFrame string `json:"avatar_frame"`
+}
+
+// UpdatePointsBackgroundRequest defines the body for updating a user's active points background.
+type UpdatePointsBackgroundRequest struct {
+	Background string `json:"background"`
 }
 
 // Task represents the tasks table.
@@ -132,6 +147,12 @@ type LoginResponse struct {
 	Role                  string    `json:"role"`
 	HasClaimedWelcomeSpin bool      `json:"has_claimed_welcome_spin"`
 	ProfileImageURL       *string   `json:"profile_image_url,omitempty"`
+	PointsBackground      string    `json:"points_background,omitempty"`
+	UnlockedBackgrounds   []string  `json:"unlocked_backgrounds,omitempty"`
+	AvatarFrame           string    `json:"avatar_frame,omitempty"`
+	UnlockedAvatarFrames  []string  `json:"unlocked_avatar_frames,omitempty"`
+	AILanguage            string    `json:"ai_language,omitempty"`
+	AIInstructions        string    `json:"ai_instructions,omitempty"`
 }
 
 // CreateTaskRequest defines the body for creating a new task.
@@ -222,7 +243,7 @@ type AIImageAnalysisResult struct {
 	Description        string  `json:"description"`
 	Category           string  `json:"category"` // "personal", "cooperative", "mandatory", "individual"
 	EstimatedUSD       float64 `json:"estimated_usd"`
-	PointsReward       int     `json:"points_reward"` // Fibonacci coin count
+	PointsReward       int     `json:"points_reward"` // Coin count
 	ValuationReasoning string  `json:"valuation_reasoning"`
 	IconURL            string  `json:"icon_url"`
 	SuggestedEmoji     string  `json:"suggested_emoji"`
@@ -239,6 +260,7 @@ type UserDailyProgress struct {
 	SpinsUsed         int       `json:"spins_used"`
 	DoubleCoinsActive bool      `json:"double_coins_active"`
 	DoubleCoinsUsed   bool      `json:"double_coins_used"`
+	SurpriseClaimed   bool      `json:"surprise_claimed"`
 }
 
 // DailyBonusStatusResponse defines the status returned for the daily bonus bar.
@@ -247,21 +269,87 @@ type DailyBonusStatusResponse struct {
 	TasksCompleted        int    `json:"tasks_completed"`
 	TargetWheel           int    `json:"target_wheel"`
 	TargetDouble          int    `json:"target_double"`
+	TargetSpin2           int    `json:"target_spin_2"`
+	TargetSpin3           int    `json:"target_spin_3"`
+	TargetSpin4           int    `json:"target_spin_4"`
+	TargetSurprise        int    `json:"target_surprise"`
 	SpinsAvailable        int    `json:"spins_available"`
 	WheelUnlocked         bool   `json:"wheel_unlocked"`
 	DoubleCoinsActive     bool   `json:"double_coins_active"`
 	DoubleCoinsUsed       bool   `json:"double_coins_used"`
+	SurpriseClaimed       bool   `json:"surprise_claimed"`
 	HasClaimedWelcomeSpin bool   `json:"has_claimed_welcome_spin"`
+}
+
+// DailySurpriseResponse defines the response returned after claiming the 10-task daily surprise.
+type DailySurpriseResponse struct {
+	ThemeID    *string `json:"theme_id,omitempty"`
+	FrameID    *string `json:"frame_id,omitempty"`
+	BonusCoins int     `json:"bonus_coins"`
+	UserPoints int     `json:"user_points"`
+	Message    string  `json:"message"`
 }
 
 // WheelSpinResponse defines the response returned after spinning the lucky wheel.
 type WheelSpinResponse struct {
-	SliceIndex        int    `json:"slice_index"`
-	Label             string `json:"label"`
-	RewardType        string `json:"reward_type"` // "individual", "cooperative", "none"
-	Amount            int    `json:"amount"`
-	UserPoints        int    `json:"user_points"`
-	CooperativePoints int    `json:"cooperative_points"`
-	SpinsRemaining    int    `json:"spins_remaining"`
+	SliceIndex         int     `json:"slice_index"`
+	Label              string  `json:"label"`
+	RewardType         string  `json:"reward_type"` // "individual", "cooperative", "none"
+	Amount             int     `json:"amount"`
+	UserPoints         int     `json:"user_points"`
+	CooperativePoints  int     `json:"cooperative_points"`
+	SpinsRemaining     int     `json:"spins_remaining"`
+	SurpriseBackground *string `json:"surprise_background,omitempty"`
+	SurpriseFrame      *string `json:"surprise_frame,omitempty"`
 }
+
+// ActivityEvent represents a recorded activity in a household.
+type ActivityEvent struct {
+	ID                 uuid.UUID              `json:"id"`
+	ChoreGroupID       uuid.UUID              `json:"choregroup_id"`
+	UserID             *uuid.UUID             `json:"user_id,omitempty"`
+	UserUsername       string                 `json:"user_username,omitempty"`
+	UserProfileImage   *string                `json:"user_profile_image,omitempty"`
+	UserAvatarFrame    *string                `json:"user_avatar_frame,omitempty"`
+	UserRole           string                 `json:"user_role,omitempty"`
+	TargetUserID       *uuid.UUID             `json:"target_user_id,omitempty"`
+	TargetUsername     string                 `json:"target_username,omitempty"`
+	TargetProfileImage *string                `json:"target_profile_image,omitempty"`
+	TargetAvatarFrame  *string                `json:"target_avatar_frame,omitempty"`
+	ActivityType       string                 `json:"activity_type"`
+	Title              string                 `json:"title"`
+	Description        string                 `json:"description"`
+	Metadata           map[string]interface{} `json:"metadata,omitempty"`
+	CreatedAt          time.Time              `json:"created_at"`
+}
+
+// HistoryFilterParams defines query filters for fetching household activity history.
+type HistoryFilterParams struct {
+	StartDate        *time.Time `json:"start_date,omitempty"`
+	EndDate          *time.Time `json:"end_date,omitempty"`
+	UserID           *uuid.UUID `json:"user_id,omitempty"`
+	ActivityCategory string     `json:"activity_category,omitempty"` // "all", "chores", "rewards", "wheel", "themes", "members"
+	Limit            int        `json:"limit,omitempty"`
+	Offset           int        `json:"offset,omitempty"`
+}
+
+// HistoryResponse defines the paginated response for household activity history.
+type HistoryResponse struct {
+	Events     []ActivityEvent `json:"events"`
+	TotalCount int             `json:"total_count"`
+	StartDate  string          `json:"start_date,omitempty"`
+	EndDate    string          `json:"end_date,omitempty"`
+}
+
+// Upload represents an uploaded file stored as binary BYTEA in the database repository.
+type Upload struct {
+	ID        uuid.UUID `json:"id"`
+	Filename  string    `json:"filename"`
+	MIMEType  string    `json:"mime_type"`
+	Data      []byte    `json:"-"`
+	SizeBytes int64     `json:"size_bytes"`
+	CreatedAt time.Time `json:"created_at"`
+}
+
+
 

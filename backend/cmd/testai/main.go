@@ -27,7 +27,7 @@ func main() {
 		log.Fatal(err)
 	}
 
-	realImgPath := "./uploads/504b98ea-4849-4526-be29-e88e95e8a581.jpg"
+	realImgPath := `C:\Users\orkok\.gemini\antigravity\brain\251a86cb-3614-470c-b195-afed0bdd3297\.user_uploaded\media_1789760304748.jpg`
 	var imageData []byte
 	var filename string
 	data, err := os.ReadFile(realImgPath)

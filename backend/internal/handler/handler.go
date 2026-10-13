@@ -8,9 +8,9 @@ import (
 	"io"
 	"log"
 	"net/http"
-	"os"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
 
@@ -64,11 +64,9 @@ func (a *API) RegisterRoutes(r *chi.Mux) {
 	r.Get("/swagger/*", httpSwagger.WrapHandler)
 	r.Post("/api/upload", a.uploadIcon)
 
-	// Static file server for uploaded icons
-	uploadDir := "./uploads"
-	_ = os.MkdirAll(uploadDir, 0755)
-	r.Handle("/uploads/*", http.StripPrefix("/uploads/", http.FileServer(http.Dir(uploadDir))))
-	r.Handle("/api/uploads/*", http.StripPrefix("/api/uploads/", http.FileServer(http.Dir(uploadDir))))
+	// Stream handler for repository uploaded icons (PostgreSQL BYTEA storage)
+	r.Get("/uploads/{filename}", a.serveUpload)
+	r.Get("/api/uploads/{filename}", a.serveUpload)
 
 	// Protected routes
 	r.Route("/api/choregroups/{choregroupID}", func(r chi.Router) {
@@ -96,6 +94,8 @@ func (a *API) RegisterRoutes(r *chi.Mux) {
 		r.Delete("/members/{userID}", a.deleteUser)
 		r.Put("/members/{userID}/password", a.updatePassword)
 		r.Put("/members/{userID}/avatar", a.updateAvatar)
+		r.Put("/members/{userID}/points-background", a.updatePointsBackground)
+		r.Put("/members/{userID}/avatar-frame", a.updateAvatarFrame)
 		// Rewards
 		r.Post("/rewards", a.createReward)
 		r.Get("/rewards", a.listRewards)
@@ -112,16 +112,54 @@ func (a *API) RegisterRoutes(r *chi.Mux) {
 		// AI Vision Analyzer
 		r.Post("/ai/analyze-image", a.analyzeImageForChoreOrReward)
 		r.Put("/ai/language", a.updateChoreGroupAILanguage)
+		r.Put("/ai/instructions", a.updateChoreGroupAIInstructions)
 		// Daily Bonus & Lucky Wheel
 		r.Get("/daily-bonus", a.getDailyBonus)
+		r.Post("/daily-bonus/claim-surprise", a.claimDailySurprise)
 		r.Post("/wheel/spin", a.spinWheel)
+		// Household Activity History
+		r.Get("/history/recent", a.getRecentHistory)
+		r.Get("/history", a.getHistory)
+		// Data Cleanup & Maintenance
+		r.Post("/maintenance/cleanup", a.runDataCleanup)
 	})
 }
 
 
-// uploadIcon handles image file uploads for custom task and reward icons.
+// serveUpload streams image binary data (BYTEA) directly from PostgreSQL database repository.
+func (a *API) serveUpload(w http.ResponseWriter, r *http.Request) {
+	filename := chi.URLParam(r, "filename")
+	if filename == "" {
+		filename = filepath.Base(r.URL.Path)
+	}
+
+	rawID := strings.TrimSuffix(filename, filepath.Ext(filename))
+	fileID, err := uuid.Parse(rawID)
+	if err != nil {
+		http.Error(w, "Invalid upload ID", http.StatusBadRequest)
+		return
+	}
+
+	upload, err := a.service.GetUploadByID(r.Context(), fileID)
+	if err != nil {
+		http.Error(w, "Image not found", http.StatusNotFound)
+		return
+	}
+
+	mimeType := upload.MIMEType
+	if mimeType == "" {
+		mimeType = "image/jpeg"
+	}
+
+	w.Header().Set("Content-Type", mimeType)
+	w.Header().Set("Content-Length", strconv.FormatInt(upload.SizeBytes, 10))
+	w.Header().Set("Cache-Control", "public, max-age=31536000")
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write(upload.Data)
+}
+
+// uploadIcon handles image file uploads for custom task and reward icons (stored in PostgreSQL repository).
 func (a *API) uploadIcon(w http.ResponseWriter, r *http.Request) {
-	// Limit request body size to 10MB
 	if err := r.ParseMultipartForm(10 << 20); err != nil {
 		http.Error(w, "File too large (max 10MB)", http.StatusBadRequest)
 		return
@@ -148,28 +186,18 @@ func (a *API) uploadIcon(w http.ResponseWriter, r *http.Request) {
 		ext = ".png"
 	}
 
-	uploadDir := "./uploads"
-	if err := os.MkdirAll(uploadDir, 0755); err != nil {
-		http.Error(w, "Failed to create uploads directory", http.StatusInternalServerError)
-		return
-	}
-
-	filename := fmt.Sprintf("%s%s", uuid.New().String(), ext)
-	dstPath := filepath.Join(uploadDir, filename)
-
-	dst, err := os.Create(dstPath)
+	data, err := io.ReadAll(file)
 	if err != nil {
-		http.Error(w, "Failed to save file", http.StatusInternalServerError)
-		return
-	}
-	defer dst.Close()
-
-	if _, err := io.Copy(dst, file); err != nil {
-		http.Error(w, "Failed to write file contents", http.StatusInternalServerError)
+		http.Error(w, "Failed to read file contents", http.StatusBadRequest)
 		return
 	}
 
-	iconURL := fmt.Sprintf("/uploads/%s", filename)
+	iconURL, err := a.service.SaveUpload(r.Context(), header.Filename, contentType, data)
+	if err != nil {
+		http.Error(w, "Failed to save upload in repository: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusCreated)
 	json.NewEncoder(w).Encode(map[string]string{"icon_url": iconURL})
@@ -181,7 +209,7 @@ func sanitizeErrorString(s string) string {
 	return apiKeyRegex.ReplaceAllString(s, "${1}[REDACTED]")
 }
 
-// analyzeImageForChoreOrReward handles photo upload & AI vision analysis to create a Chore or Reward with Fibonacci coins.
+// analyzeImageForChoreOrReward handles photo upload & AI vision analysis to create a Chore or Reward with fair coin calculation.
 func (a *API) analyzeImageForChoreOrReward(w http.ResponseWriter, r *http.Request) {
 	user, ok := r.Context().Value(userKey).(model.User)
 	if !ok {
@@ -230,28 +258,24 @@ func (a *API) analyzeImageForChoreOrReward(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	uploadDir := "./uploads"
-	_ = os.MkdirAll(uploadDir, 0755)
-	filename := fmt.Sprintf("%s%s", uuid.New().String(), ext)
-	dstPath := filepath.Join(uploadDir, filename)
-
-	if err := os.WriteFile(dstPath, imgBytes, 0644); err != nil {
-		http.Error(w, "Failed to save image file", http.StatusInternalServerError)
+	iconURL, err := a.service.SaveUpload(r.Context(), header.Filename, contentType, imgBytes)
+	if err != nil {
+		http.Error(w, "Failed to save image file in repository: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
-
-	iconURL := fmt.Sprintf("/uploads/%s", filename)
 
 	// Use client requested language first, then household's configured AI language, default to Hebrew
 	lang := strings.TrimSpace(r.FormValue("language"))
 	if lang == "" {
 		lang = strings.TrimSpace(r.URL.Query().Get("lang"))
 	}
-	if lang == "" {
-		group, err := a.service.GetChoreGroupByID(r.Context(), user.ChoreGroupID)
-		if err == nil && group.AILanguage != "" {
+	var customInstructions string
+	group, err := a.service.GetChoreGroupByID(r.Context(), user.ChoreGroupID)
+	if err == nil {
+		if lang == "" && group.AILanguage != "" {
 			lang = group.AILanguage
 		}
+		customInstructions = group.AIInstructions
 	}
 	if lang == "" {
 		lang = "he"
@@ -280,12 +304,36 @@ func (a *API) analyzeImageForChoreOrReward(w http.ResponseWriter, r *http.Reques
 		mode = "chore"
 	}
 
-	analysis, err := a.service.AnalyzeImageForChoreOrReward(r.Context(), imgBytes, contentType, iconURL, targetLang, mode)
+	analysis, err := a.service.AnalyzeImageForChoreOrReward(r.Context(), imgBytes, contentType, iconURL, targetLang, mode, customInstructions)
 	if err != nil {
 		cleanMsg := sanitizeErrorString(err.Error())
 		log.Printf("[AI ERROR] Gemini vision analysis failed: %v", cleanMsg)
 		http.Error(w, cleanMsg, http.StatusBadRequest)
 		return
+	}
+
+	// Chores created by non-admin users (kids) have 1 less coin than if an admin creates it.
+	// If the estimation is 1 coin, instead of 0 coins the task becomes mandatory on the user.
+	if user.Role != "admin" && analysis.ItemType == "chore" {
+		baseCoins := analysis.PointsReward
+		isHebrew := strings.Contains(targetLang, "Hebrew") || strings.Contains(targetLang, "עברית")
+		if baseCoins <= 1 {
+			analysis.PointsReward = 0
+			analysis.Category = "mandatory"
+			if isHebrew {
+				analysis.ValuationReasoning = "משימה קלה שנוצרה על ידי משתמש (הערכת בסיס 1 מטבע): מוגדרת כמשימת חובה (0 מטבעות)."
+			} else {
+				analysis.ValuationReasoning = "Chore created by user (base estimation 1 coin): assigned as mandatory task (0 coins)."
+			}
+		} else {
+			analysis.PointsReward = baseCoins - 1
+			analysis.Category = "personal"
+			if isHebrew {
+				analysis.ValuationReasoning = fmt.Sprintf("משימה שנוצרה על ידי משתמש: 1 מטבע פחות מהערכת המקור (%d - 1 = %d מטבעות).", baseCoins, analysis.PointsReward)
+			} else {
+				analysis.ValuationReasoning = fmt.Sprintf("Chore created by user: 1 less coin than admin estimation (%d - 1 = %d coins).", baseCoins, analysis.PointsReward)
+			}
+		}
 	}
 
 	w.Header().Set("Content-Type", "application/json")
@@ -324,6 +372,41 @@ func (a *API) updateChoreGroupAILanguage(w http.ResponseWriter, r *http.Request)
 	_ = json.NewEncoder(w).Encode(map[string]string{
 		"message":     "Household AI language updated",
 		"ai_language": lang,
+	})
+}
+
+// updateChoreGroupAIInstructions handles PUT /api/choregroups/{choregroupID}/ai/instructions
+func (a *API) updateChoreGroupAIInstructions(w http.ResponseWriter, r *http.Request) {
+	user, ok := r.Context().Value(userKey).(model.User)
+	if !ok || user.Role != "admin" {
+		http.Error(w, "Forbidden: Only household admins can set custom AI instructions", http.StatusForbidden)
+		return
+	}
+
+	var req struct {
+		Instructions string `json:"instructions"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "Invalid request body", http.StatusBadRequest)
+		return
+	}
+
+	instructions := strings.TrimSpace(req.Instructions)
+	if len(instructions) > 2000 {
+		http.Error(w, "Instructions too long (max 2000 characters)", http.StatusBadRequest)
+		return
+	}
+
+	if err := a.service.UpdateChoreGroupAIInstructions(r.Context(), user.ChoreGroupID, instructions); err != nil {
+		http.Error(w, fmt.Sprintf("Failed to update household AI instructions: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	_ = json.NewEncoder(w).Encode(map[string]string{
+		"message":         "Household AI instructions updated",
+		"ai_instructions": instructions,
 	})
 }
 
@@ -870,6 +953,74 @@ func (a *API) updateAvatar(w http.ResponseWriter, r *http.Request) {
 	a.broker.Broadcast(loggedInUser.ChoreGroupID, "refresh")
 }
 
+// updatePointsBackground handles PUT /api/choregroups/{choregroupID}/members/{userID}/points-background
+func (a *API) updatePointsBackground(w http.ResponseWriter, r *http.Request) {
+	loggedInUser := r.Context().Value(userKey).(model.User)
+
+	targetUserID, err := uuid.Parse(chi.URLParam(r, "userID"))
+	if err != nil {
+		http.Error(w, "Invalid User ID", http.StatusBadRequest)
+		return
+	}
+
+	var req model.UpdatePointsBackgroundRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	err = a.service.UpdateUserPointsBackground(r.Context(), loggedInUser, targetUserID, req.Background)
+	if errors.Is(err, service.ErrForbidden) {
+		http.Error(w, "Forbidden", http.StatusForbidden)
+		return
+	} else if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	json.NewEncoder(w).Encode(map[string]string{
+		"message":           "Points background updated successfully",
+		"points_background": req.Background,
+	})
+	a.broker.Broadcast(loggedInUser.ChoreGroupID, "refresh")
+}
+
+// updateAvatarFrame handles PUT /api/choregroups/{choregroupID}/members/{userID}/avatar-frame
+func (a *API) updateAvatarFrame(w http.ResponseWriter, r *http.Request) {
+	loggedInUser := r.Context().Value(userKey).(model.User)
+
+	targetUserID, err := uuid.Parse(chi.URLParam(r, "userID"))
+	if err != nil {
+		http.Error(w, "Invalid User ID", http.StatusBadRequest)
+		return
+	}
+
+	var req model.UpdateAvatarFrameRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	err = a.service.UpdateUserAvatarFrame(r.Context(), loggedInUser, targetUserID, req.AvatarFrame)
+	if errors.Is(err, service.ErrForbidden) {
+		http.Error(w, "Forbidden", http.StatusForbidden)
+		return
+	} else if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	json.NewEncoder(w).Encode(map[string]string{
+		"message":      "Avatar frame updated successfully",
+		"avatar_frame": req.AvatarFrame,
+	})
+	a.broker.Broadcast(loggedInUser.ChoreGroupID, "refresh")
+}
+
 
 // authMiddleware fetches the user from the database and performs authorization using JWT session cookie.
 func (a *API) authMiddleware(next http.Handler) http.Handler {
@@ -1175,6 +1326,12 @@ func (a *API) loginDelegated(w http.ResponseWriter, r *http.Request) {
 		Role:                  claims.Role,
 		HasClaimedWelcomeSpin: user.HasClaimedWelcomeSpin,
 		ProfileImageURL:       user.ProfileImageURL,
+		PointsBackground:      user.PointsBackground,
+		UnlockedBackgrounds:   user.UnlockedBackgrounds,
+		AvatarFrame:           user.AvatarFrame,
+		UnlockedAvatarFrames:  user.UnlockedAvatarFrames,
+		AILanguage:            group.AILanguage,
+		AIInstructions:        group.AIInstructions,
 	}
 	json.NewEncoder(w).Encode(res)
 }
@@ -1242,6 +1399,34 @@ func (a *API) getDailyBonus(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(status)
 }
 
+// claimDailySurprise handles POST /api/choregroups/{choregroupID}/daily-bonus/claim-surprise
+func (a *API) claimDailySurprise(w http.ResponseWriter, r *http.Request) {
+	user, ok := r.Context().Value(userKey).(model.User)
+	if !ok {
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	choregroupID, err := uuid.Parse(chi.URLParam(r, "choregroupID"))
+	if err != nil {
+		http.Error(w, "Invalid choregroup ID", http.StatusBadRequest)
+		return
+	}
+
+	resp, err := a.service.ClaimDailySurprise(r.Context(), choregroupID, user.ID)
+	if err != nil {
+		if errors.Is(err, service.ErrForbidden) {
+			http.Error(w, "Forbidden", http.StatusForbidden)
+			return
+		}
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(resp)
+}
+
 // spinWheel handles POST /api/choregroups/{choregroupID}/wheel/spin
 func (a *API) spinWheel(w http.ResponseWriter, r *http.Request) {
 	user, ok := r.Context().Value(userKey).(model.User)
@@ -1277,4 +1462,122 @@ func (a *API) spinWheel(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(result)
 }
+
+// getRecentHistory handles GET /api/choregroups/{choregroupID}/history/recent
+func (a *API) getRecentHistory(w http.ResponseWriter, r *http.Request) {
+	user, ok := r.Context().Value(userKey).(model.User)
+	if !ok {
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	choregroupID, err := uuid.Parse(chi.URLParam(r, "choregroupID"))
+	if err != nil {
+		http.Error(w, "Invalid choregroup ID", http.StatusBadRequest)
+		return
+	}
+
+	if user.ChoreGroupID != choregroupID {
+		http.Error(w, "Forbidden", http.StatusForbidden)
+		return
+	}
+
+	recent, err := a.service.GetRecentHistory(r.Context(), choregroupID, user.ID, user.Role == "admin")
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(recent)
+}
+
+// getHistory handles GET /api/choregroups/{choregroupID}/history
+func (a *API) getHistory(w http.ResponseWriter, r *http.Request) {
+	user, ok := r.Context().Value(userKey).(model.User)
+	if !ok {
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	choregroupID, err := uuid.Parse(chi.URLParam(r, "choregroupID"))
+	if err != nil {
+		http.Error(w, "Invalid choregroup ID", http.StatusBadRequest)
+		return
+	}
+
+	if user.ChoreGroupID != choregroupID {
+		http.Error(w, "Forbidden", http.StatusForbidden)
+		return
+	}
+
+	query := r.URL.Query()
+	var filter model.HistoryFilterParams
+
+	if startDateStr := query.Get("start_date"); startDateStr != "" {
+		if t, err := time.Parse(time.RFC3339, startDateStr); err == nil {
+			filter.StartDate = &t
+		} else if t, err := time.Parse("2006-01-02", startDateStr); err == nil {
+			filter.StartDate = &t
+		}
+	}
+	if endDateStr := query.Get("end_date"); endDateStr != "" {
+		if t, err := time.Parse(time.RFC3339, endDateStr); err == nil {
+			filter.EndDate = &t
+		} else if t, err := time.Parse("2006-01-02", endDateStr); err == nil {
+			tEnd := t.Add(24*time.Hour - time.Nanosecond)
+			filter.EndDate = &tEnd
+		}
+	}
+
+	if uIDStr := query.Get("user_id"); uIDStr != "" {
+		if uid, err := uuid.Parse(uIDStr); err == nil {
+			filter.UserID = &uid
+		}
+	}
+
+	filter.ActivityCategory = query.Get("activity_category")
+
+	if limitStr := query.Get("limit"); limitStr != "" {
+		if l, err := strconv.Atoi(limitStr); err == nil {
+			filter.Limit = l
+		}
+	}
+	if offsetStr := query.Get("offset"); offsetStr != "" {
+		if o, err := strconv.Atoi(offsetStr); err == nil {
+			filter.Offset = o
+		}
+	}
+
+	history, err := a.service.GetHistory(r.Context(), choregroupID, user.ID, user.Role == "admin", filter)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(history)
+}
+
+// runDataCleanup handles POST /api/choregroups/{choregroupID}/maintenance/cleanup (Admin only)
+func (a *API) runDataCleanup(w http.ResponseWriter, r *http.Request) {
+	user, ok := r.Context().Value(userKey).(model.User)
+	if !ok || user.Role != "admin" {
+		http.Error(w, "Forbidden", http.StatusForbidden)
+		return
+	}
+
+	stats, err := a.service.RunDataCleanup(r.Context())
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]interface{}{
+		"status": "success",
+		"stats":  stats,
+	})
+}
+
 
